@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (CH341 최적화)</title>
+    <title>AI 로봇집게 태블릿 제어기 (FTDI/CH341 통합)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -24,7 +24,7 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">CH341 Support Ready</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">Auto-Detecting Chipset...</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-sm text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -62,15 +62,18 @@
         <div class="mt-6 p-4 bg-slate-900/40 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
             <div class="flex items-start">
                 <span class="mr-2">💡</span>
-                <p><strong>CH341 연결 안내:</strong> 태블릿에 연결된 장치를 선택할 때 'USB-Serial' 또는 'CH341'을 선택하세요. 장치 목록이 나타나지 않는다면 <strong>OTG 젠더</strong>가 데이터 통신용인지 확인해 주세요.</p>
+                <div id="guideText">
+                    <strong>연결 안내:</strong> 'FT232R' 또는 'CH341' 장치가 목록에 뜨면 선택하세요. 
+                    연결 후에도 로봇이 움직이지 않으면 OTG 젠더를 뺐다 다시 꽂아주세요.
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- WebUSB CH34x 전용 드라이버 로직 ---
+        // --- WebUSB 멀티 칩셋 드라이버 구현 ---
         let device;
-        let endpointOut = 0x02; // WCH Chips standard OUT endpoint
+        let endpointOut = 0x02; 
         let currentMode = 'gesture';
         let angles = { ud: 90, lr: 90, gr: 90 };
         let sendTimer = null;
@@ -78,16 +81,17 @@
         const connectBtn = document.getElementById('connectBtn');
         const connStatus = document.getElementById('connStatus');
         const modeText = document.getElementById('modeText');
+        const chipInfo = document.getElementById('chipInfo');
         const valUD = document.getElementById('valUD'), valLR = document.getElementById('valLR'), valGR = document.getElementById('valGR');
 
         connectBtn.addEventListener('click', async () => {
             try {
-                // CH341/CH340 Vendor ID: 0x1a86
+                // FTDI(0x0403), CH34x(0x1a86), Arduino(0x2341) 필터
                 device = await navigator.usb.requestDevice({ 
                     filters: [
+                        { vendorId: 0x0403 }, // FTDI (FT232R)
                         { vendorId: 0x1a86 }, // CH34x
-                        { vendorId: 0x2341 }, // Arduino
-                        { vendorId: 0x0403 }, // FTDI
+                        { vendorId: 0x2341 }, // Arduino Original
                         { vendorId: 0x10c4 }  // CP210x
                     ] 
                 });
@@ -96,44 +100,53 @@
                 if (device.configuration === null) await device.selectConfiguration(1);
                 await device.claimInterface(0);
 
-                // --- CH34x 전용 초기화 시퀀스 (115200 Baudrate) ---
-                // CH341의 경우 Baudrate 설정과 Modem Control 명령이 필수입니다.
-                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 }); // Baud 115200
-                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 }); // Line Control
-                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x00ff, index: 0x0000 }); // Enable Data
+                // --- 칩셋별 초기화 분기 ---
+                const vid = device.vendorId;
+                
+                if (vid === 0x0403) {
+                    // [FTDI FT232R 초기화]
+                    chipInfo.innerText = "FTDI Chipset Detected";
+                    endpointOut = 0x02;
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0001, index: 0x0000 }); // Reset
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 }); // Baudrate 115200
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 }); // Data 8-N-1
+                } else if (vid === 0x1a86) {
+                    // [CH34x 초기화]
+                    chipInfo.innerText = "CH34x Chipset Detected";
+                    endpointOut = 0x02;
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 }); // Baud 115200
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 }); 
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x00ff, index: 0x0000 }); 
+                } else {
+                    chipInfo.innerText = "Generic Serial Device";
+                    endpointOut = 0x01; // CDC-ACM 등 일반적인 경우
+                }
 
                 connStatus.innerHTML = '<span class="status-dot bg-green-500"></span>연결됨';
                 connectBtn.style.display = 'none';
-                modeText.innerText = "로봇 조종 준비 완료! 모드를 선택하세요.";
+                modeText.innerText = "로봇 조종 준비 완료!";
                 
                 if (sendTimer) clearInterval(sendTimer);
-                sendTimer = setInterval(sendPacket, 50); // 20Hz 전송
+                sendTimer = setInterval(sendPacket, 50); 
             } catch (err) {
                 console.error("Connection Error:", err);
-                modeText.innerText = "연결 실패: 기기를 확인하고 다시 시도하세요.";
+                modeText.innerText = "연결 실패: 장치 설정을 확인하세요.";
             }
         });
 
         async function sendPacket() {
             if (!device || !device.opened) return;
             
-            // 아두이노 aiservo_1.0.ino 규격: [FF 55 Mode S1 S2 S3 ...] (12바이트)
             const packet = new Uint8Array([
-                0xFF, 0x55, 
-                0x01,           // AI Mode
-                angles.ud,      // 상하
-                angles.lr,      // 좌우
-                angles.gr,      // 집게
-                0x02,           // NeoPixel 모두(Idx 2)
-                0x00, 0x00, 0x00, // RGB (0,0,0)
-                0x00,           // Buzzer
-                0x00            // Blue LED
+                0xFF, 0x55, 0x01, angles.ud, angles.lr, angles.gr,
+                0x02, 0x00, 0x00, 0x00, 0x00, 0x00
             ]);
 
             try {
                 await device.transferOut(endpointOut, packet);
             } catch (e) {
-                console.warn("Transfer Failed:", e);
+                // 전송 실패 시 엔드포인트 번호 자동 시도 (일부 보드 대응)
+                try { await device.transferOut(1, packet); } catch(e2) {}
             }
         }
 
@@ -157,17 +170,16 @@
                     const thumbTip = landmarks[4];
                     const indexTip = landmarks[8];
                     
-                    // LR: 좌우 (반전 반영)
+                    // LR: 좌우 (반전)
                     angles.lr = Math.round(180 - (wrist.x * 180));
                     // UD: 상하
                     angles.ud = Math.round(wrist.y * 180);
-                    // GR: 집게 (엄지-검지 거리)
+                    // GR: 집게
                     const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
                     angles.gr = dist < 0.07 ? 180 : (dist > 0.15 ? 0 : 90);
                     
                     updateDisplay();
                 }
-                // 손가락 시각화
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
                     canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
@@ -208,15 +220,10 @@
 
             angles.lr = Math.round(180 - (x * 180));
             angles.ud = Math.round(y * 180);
-            
-            // 화면 우측 25% 영역은 집게 정밀 제어
-            if (x > 0.75) {
-                angles.gr = Math.round(y * 180);
-            }
+            if (x > 0.75) angles.gr = Math.round(y * 180);
             updateDisplay();
         }
 
-        // UI 업데이트
         const btnGesture = document.getElementById('modeGesture');
         const btnTouch = document.getElementById('modeTouch');
 
@@ -224,14 +231,12 @@
             currentMode = 'gesture';
             btnGesture.className = "flex-1 py-3 rounded-lg border btn-active font-bold transition-all";
             btnTouch.className = "flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all";
-            modeText.innerText = "카메라를 향해 손을 보여주세요";
         };
 
         btnTouch.onclick = () => {
             currentMode = 'touch';
             btnTouch.className = "flex-1 py-3 rounded-lg border btn-active font-bold transition-all";
             btnGesture.className = "flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all";
-            modeText.innerText = "화면을 터치/드래그하여 조종하세요";
         };
 
         function updateDisplay() {
