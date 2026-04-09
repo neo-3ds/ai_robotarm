@@ -3,19 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (드라이버 프리)</title>
+    <title>AI 로봇집게 태블릿 제어기 (CH341 최적화)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0f172a; color: white; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
-        .canvas-container { position: relative; width: 100%; height: 50vh; background: #1e293b; border-radius: 1rem; overflow: hidden; }
-        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
+        .canvas-container { position: relative; width: 100%; height: 50vh; background: #1e293b; border-radius: 1rem; overflow: hidden; border: 1px solid #334155; }
+        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.2; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
         .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
-        /* 터치 피드백 시각화 */
-        .touch-point { position: absolute; width: 40px; height: 40px; border: 2px solid #22d3ee; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 50; background: rgba(34, 211, 238, 0.2); }
+        .touch-point { position: absolute; width: 45px; height: 45px; border: 2px solid #22d3ee; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 50; background: rgba(34, 211, 238, 0.15); box-shadow: 0 0 15px rgba(34, 211, 238, 0.5); }
+        .btn-active { background-color: #164e63; border-color: #22d3ee; color: #ecfeff; }
+        .btn-inactive { background-color: #334155; border-color: #475569; color: #94a3b8; }
     </style>
 </head>
 <body class="p-4 flex flex-col items-center">
@@ -23,7 +24,7 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p class="text-[10px] text-slate-400">GitHub Pages Deployment Ready</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">CH341 Support Ready</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-sm text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -31,96 +32,108 @@
             </div>
         </header>
 
-        <div id="mainViewport" class="canvas-container shadow-2xl border border-slate-700 mb-6">
+        <div id="mainViewport" class="canvas-container shadow-2xl mb-6">
             <video id="inputVideo" playsinline></video>
             <canvas id="outputCanvas"></canvas>
             <div id="touchPoint" class="touch-point"></div>
-            <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center text-slate-500 pointer-events-none">
-                <p id="modeText" class="bg-slate-900/50 px-4 py-2 rounded-full text-sm">USB를 연결하고 모드를 선택하세요</p>
+            <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                <p id="modeText" class="bg-slate-900/60 backdrop-blur-sm px-4 py-2 rounded-full text-xs font-medium text-slate-200">USB를 연결하고 모드를 선택하세요</p>
             </div>
         </div>
 
         <div class="grid grid-cols-2 gap-4 w-full">
-            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                <label class="text-xs text-slate-400 block mb-2 font-bold uppercase tracking-wider">제어 모드</label>
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                <label class="text-[10px] text-slate-500 block mb-2 font-bold uppercase tracking-widest">Control Mode</label>
                 <div class="flex space-x-2">
-                    <button id="modeGesture" class="flex-1 py-3 rounded-lg bg-cyan-900 border border-cyan-500 text-cyan-100 font-bold transition-all active:scale-95">손동작 인식</button>
-                    <button id="modeTouch" class="flex-1 py-3 rounded-lg bg-slate-700 border border-slate-600 text-slate-400 font-bold transition-all active:scale-95">화면 터치</button>
+                    <button id="modeGesture" class="flex-1 py-3 rounded-lg border btn-active font-bold transition-all">동작 인식</button>
+                    <button id="modeTouch" class="flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all">화면 터치</button>
                 </div>
             </div>
-            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                <label class="text-xs text-slate-400 block mb-2 font-bold uppercase tracking-wider">실시간 관절 각도</label>
+            <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
+                <label class="text-[10px] text-slate-500 block mb-2 font-bold uppercase tracking-widest">Real-time Angles</label>
                 <div class="grid grid-cols-3 gap-1 text-center font-mono">
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">상하</div><div id="valUD" class="text-cyan-400 text-lg">90</div></div>
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">좌우</div><div id="valLR" class="text-cyan-400 text-lg">90</div></div>
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">집게</div><div id="valGR" class="text-cyan-400 text-lg">90</div></div>
+                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">UD</div><div id="valUD" class="text-cyan-400 text-lg">90</div></div>
+                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">LR</div><div id="valLR" class="text-cyan-400 text-lg">90</div></div>
+                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">GR</div><div id="valGR" class="text-cyan-400 text-lg">90</div></div>
                 </div>
             </div>
         </div>
 
-        <div class="mt-6 p-4 bg-slate-900/50 rounded-lg text-xs text-slate-500 leading-relaxed">
-            <ul class="list-disc list-inside">
-                <li>안드로이드 크롬(Chrome) 브라우저 사용을 권장합니다.</li>
-                <li>OTG 젠더를 사용하여 아두이노 나노와 태블릿을 연결하세요.</li>
-                <li>화면 터치 모드에서 오른쪽 끝을 터치하면 집게를 제어할 수 있습니다.</li>
-            </ul>
+        <div class="mt-6 p-4 bg-slate-900/40 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+            <div class="flex items-start">
+                <span class="mr-2">💡</span>
+                <p><strong>CH341 연결 안내:</strong> 태블릿에 연결된 장치를 선택할 때 'USB-Serial' 또는 'CH341'을 선택하세요. 장치 목록이 나타나지 않는다면 <strong>OTG 젠더</strong>가 데이터 통신용인지 확인해 주세요.</p>
+            </div>
         </div>
     </div>
 
     <script>
-        // --- WebUSB CH340 드라이버 구현 ---
+        // --- WebUSB CH34x 전용 드라이버 로직 ---
         let device;
-        let endpointOut = 2; 
+        let endpointOut = 0x02; // WCH Chips standard OUT endpoint
         let currentMode = 'gesture';
         let angles = { ud: 90, lr: 90, gr: 90 };
-        let isSending = false;
+        let sendTimer = null;
 
         const connectBtn = document.getElementById('connectBtn');
         const connStatus = document.getElementById('connStatus');
-        const valUD = document.getElementById('valUD');
-        const valLR = document.getElementById('valLR');
-        const valGR = document.getElementById('valGR');
         const modeText = document.getElementById('modeText');
+        const valUD = document.getElementById('valUD'), valLR = document.getElementById('valLR'), valGR = document.getElementById('valGR');
 
-        // USB 연결 이벤트
         connectBtn.addEventListener('click', async () => {
             try {
-                device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x1a86 }, { vendorId: 0x2341 }] });
+                // CH341/CH340 Vendor ID: 0x1a86
+                device = await navigator.usb.requestDevice({ 
+                    filters: [
+                        { vendorId: 0x1a86 }, // CH34x
+                        { vendorId: 0x2341 }, // Arduino
+                        { vendorId: 0x0403 }, // FTDI
+                        { vendorId: 0x10c4 }  // CP210x
+                    ] 
+                });
+
                 await device.open();
                 if (device.configuration === null) await device.selectConfiguration(1);
                 await device.claimInterface(0);
 
-                // CH340 초기화 루틴 (115200bps)
-                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
-                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0504, index: 0x0018 });
-                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0x0000 });
+                // --- CH34x 전용 초기화 시퀀스 (115200 Baudrate) ---
+                // CH341의 경우 Baudrate 설정과 Modem Control 명령이 필수입니다.
+                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 }); // Baud 115200
+                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 }); // Line Control
+                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x00ff, index: 0x0000 }); // Enable Data
 
                 connStatus.innerHTML = '<span class="status-dot bg-green-500"></span>연결됨';
-                connectBtn.classList.add('opacity-50', 'pointer-events-none');
-                connectBtn.innerText = "연결 완료";
+                connectBtn.style.display = 'none';
+                modeText.innerText = "로봇 조종 준비 완료! 모드를 선택하세요.";
                 
-                if (!isSending) {
-                    isSending = true;
-                    setInterval(sendData, 50);
-                }
-                modeText.innerText = "제어 모드를 선택해 주세요";
+                if (sendTimer) clearInterval(sendTimer);
+                sendTimer = setInterval(sendPacket, 50); // 20Hz 전송
             } catch (err) {
-                console.error("WebUSB 오류:", err);
-                modeText.innerText = "연결 실패: USB 상태를 확인하세요";
+                console.error("Connection Error:", err);
+                modeText.innerText = "연결 실패: 기기를 확인하고 다시 시도하세요.";
             }
         });
 
-        async function sendData() {
+        async function sendPacket() {
             if (!device || !device.opened) return;
+            
+            // 아두이노 aiservo_1.0.ino 규격: [FF 55 Mode S1 S2 S3 ...] (12바이트)
             const packet = new Uint8Array([
-                0xFF, 0x55, 1, 
-                angles.ud, angles.lr, angles.gr,
-                2, 0, 0, 0, 0, 0
+                0xFF, 0x55, 
+                0x01,           // AI Mode
+                angles.ud,      // 상하
+                angles.lr,      // 좌우
+                angles.gr,      // 집게
+                0x02,           // NeoPixel 모두(Idx 2)
+                0x00, 0x00, 0x00, // RGB (0,0,0)
+                0x00,           // Buzzer
+                0x00            // Blue LED
             ]);
+
             try {
                 await device.transferOut(endpointOut, packet);
             } catch (e) {
-                console.warn("전송 실패");
+                console.warn("Transfer Failed:", e);
             }
         }
 
@@ -144,20 +157,20 @@
                     const thumbTip = landmarks[4];
                     const indexTip = landmarks[8];
                     
-                    // LR(좌우): 화면 가로축 매핑 (반전 고려)
+                    // LR: 좌우 (반전 반영)
                     angles.lr = Math.round(180 - (wrist.x * 180));
-                    // UD(상하): 화면 세로축 매핑
+                    // UD: 상하
                     angles.ud = Math.round(wrist.y * 180);
-                    // GR(집게): 엄지와 검지 거리 측정
+                    // GR: 집게 (엄지-검지 거리)
                     const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-                    angles.gr = dist < 0.06 ? 180 : (dist > 0.15 ? 0 : 90);
+                    angles.gr = dist < 0.07 ? 180 : (dist > 0.15 ? 0 : 90);
                     
-                    updateUI();
+                    updateDisplay();
                 }
-                // 랜드마크 렌더링
+                // 손가락 시각화
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
-                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 3, 0, 2 * Math.PI);
+                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
                 }
@@ -171,15 +184,15 @@
         });
         camera.start();
 
-        // --- 터치 제어 및 인터랙션 ---
+        // --- 터치 제어 ---
         const mainViewport = document.getElementById('mainViewport');
         const touchPoint = document.getElementById('touchPoint');
 
-        mainViewport.addEventListener('touchstart', handleTouch);
-        mainViewport.addEventListener('touchmove', handleTouch);
+        mainViewport.addEventListener('touchstart', (e) => handleTouch(e, true));
+        mainViewport.addEventListener('touchmove', (e) => handleTouch(e, true));
         mainViewport.addEventListener('touchend', () => { touchPoint.style.display = 'none'; });
 
-        function handleTouch(e) {
+        function handleTouch(e, visual) {
             if (currentMode !== 'touch') return;
             e.preventDefault();
             const rect = mainViewport.getBoundingClientRect();
@@ -187,41 +200,41 @@
             const x = (touch.clientX - rect.left) / rect.width;
             const y = (touch.clientY - rect.top) / rect.height;
 
-            // 터치 포인트 시각화
-            touchPoint.style.display = 'block';
-            touchPoint.style.left = (touch.clientX - rect.left) + 'px';
-            touchPoint.style.top = (touch.clientY - rect.top) + 'px';
+            if (visual) {
+                touchPoint.style.display = 'block';
+                touchPoint.style.left = (touch.clientX - rect.left) + 'px';
+                touchPoint.style.top = (touch.clientY - rect.top) + 'px';
+            }
 
-            // 각도 계산
             angles.lr = Math.round(180 - (x * 180));
             angles.ud = Math.round(y * 180);
             
-            // 화면 우측 20% 영역은 집게 제어
-            if (x > 0.8) {
+            // 화면 우측 25% 영역은 집게 정밀 제어
+            if (x > 0.75) {
                 angles.gr = Math.round(y * 180);
             }
-            updateUI();
+            updateDisplay();
         }
 
-        // 모드 전환 UI 업데이트
+        // UI 업데이트
         const btnGesture = document.getElementById('modeGesture');
         const btnTouch = document.getElementById('modeTouch');
 
         btnGesture.onclick = () => {
             currentMode = 'gesture';
-            btnGesture.className = "flex-1 py-3 rounded-lg bg-cyan-900 border border-cyan-500 text-cyan-100 font-bold active:scale-95";
-            btnTouch.className = "flex-1 py-3 rounded-lg bg-slate-700 border border-slate-600 text-slate-400 font-bold active:scale-95";
-            modeText.innerText = "카메라에 손을 보여주세요";
+            btnGesture.className = "flex-1 py-3 rounded-lg border btn-active font-bold transition-all";
+            btnTouch.className = "flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all";
+            modeText.innerText = "카메라를 향해 손을 보여주세요";
         };
 
         btnTouch.onclick = () => {
             currentMode = 'touch';
-            btnTouch.className = "flex-1 py-3 rounded-lg bg-cyan-900 border border-cyan-500 text-cyan-100 font-bold active:scale-95";
-            btnGesture.className = "flex-1 py-3 rounded-lg bg-slate-700 border border-slate-600 text-slate-400 font-bold active:scale-95";
-            modeText.innerText = "화면을 터치하여 관절을 조종하세요";
+            btnTouch.className = "flex-1 py-3 rounded-lg border btn-active font-bold transition-all";
+            btnGesture.className = "flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all";
+            modeText.innerText = "화면을 터치/드래그하여 조종하세요";
         };
 
-        function updateUI() {
+        function updateDisplay() {
             valUD.innerText = angles.ud;
             valLR.innerText = angles.lr;
             valGR.innerText = angles.gr;
