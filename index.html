@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (FTDI/CH341 통합)</title>
+    <title>AI 로봇집게 태블릿 제어기 (FTDI 지원)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -24,7 +24,7 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">Auto-Detecting Chipset...</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI FT232R Detected</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-sm text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -59,21 +59,19 @@
             </div>
         </div>
 
-        <div class="mt-6 p-4 bg-slate-900/40 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
-            <div class="flex items-start">
-                <span class="mr-2">💡</span>
-                <div id="guideText">
-                    <strong>연결 안내:</strong> 'FT232R' 또는 'CH341' 장치가 목록에 뜨면 선택하세요. 
-                    연결 후에도 로봇이 움직이지 않으면 OTG 젠더를 뺐다 다시 꽂아주세요.
-                </div>
-            </div>
+        <div class="mt-6 p-4 bg-slate-900/40 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed text-left">
+            <ul class="list-disc list-inside space-y-1">
+                <li><strong>FTDI 칩셋 최적화:</strong> 'FT232R USB UART'를 선택해 주세요.</li>
+                <li><strong>OTG 젠더:</strong> 반드시 '데이터 통신용' 젠더를 사용해야 합니다.</li>
+                <li><strong>동작 안함:</strong> 인식은 되나 움직이지 않으면 USB를 뺐다 다시 꽂아주세요.</li>
+            </ul>
         </div>
     </div>
 
     <script>
-        // --- WebUSB 멀티 칩셋 드라이버 구현 ---
+        // --- WebUSB FTDI 전용 드라이버 구현 ---
         let device;
-        let endpointOut = 0x02; 
+        let endpointOut = 0x02; // FT232R 기본 OUT 엔드포인트
         let currentMode = 'gesture';
         let angles = { ud: 90, lr: 90, gr: 90 };
         let sendTimer = null;
@@ -81,18 +79,16 @@
         const connectBtn = document.getElementById('connectBtn');
         const connStatus = document.getElementById('connStatus');
         const modeText = document.getElementById('modeText');
-        const chipInfo = document.getElementById('chipInfo');
         const valUD = document.getElementById('valUD'), valLR = document.getElementById('valLR'), valGR = document.getElementById('valGR');
 
         connectBtn.addEventListener('click', async () => {
             try {
-                // FTDI(0x0403), CH34x(0x1a86), Arduino(0x2341) 필터
+                // FTDI Vendor ID: 0x0403
                 device = await navigator.usb.requestDevice({ 
                     filters: [
-                        { vendorId: 0x0403 }, // FTDI (FT232R)
+                        { vendorId: 0x0403 }, // FTDI
                         { vendorId: 0x1a86 }, // CH34x
-                        { vendorId: 0x2341 }, // Arduino Original
-                        { vendorId: 0x10c4 }  // CP210x
+                        { vendorId: 0x2341 }  // Arduino
                     ] 
                 });
 
@@ -100,57 +96,60 @@
                 if (device.configuration === null) await device.selectConfiguration(1);
                 await device.claimInterface(0);
 
-                // --- 칩셋별 초기화 분기 ---
-                const vid = device.vendorId;
-                
-                if (vid === 0x0403) {
-                    // [FTDI FT232R 초기화]
-                    chipInfo.innerText = "FTDI Chipset Detected";
-                    endpointOut = 0x02;
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0001, index: 0x0000 }); // Reset
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 }); // Baudrate 115200
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 }); // Data 8-N-1
-                } else if (vid === 0x1a86) {
-                    // [CH34x 초기화]
-                    chipInfo.innerText = "CH34x Chipset Detected";
-                    endpointOut = 0x02;
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 }); // Baud 115200
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 }); 
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x00ff, index: 0x0000 }); 
-                } else {
-                    chipInfo.innerText = "Generic Serial Device";
-                    endpointOut = 0x01; // CDC-ACM 등 일반적인 경우
+                // --- FTDI 칩셋 전용 초기화 (115200 Baudrate) ---
+                if (device.vendorId === 0x0403) {
+                    // 1. 리셋
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
+                    // 2. 보레이트 설정 (115200: FTDI의 경우 특수한 분주기 값 사용)
+                    // 3000000 / 115200 = 26.0416... -> divisor 26, sub-integer 0
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
+                    // 3. 데이터 형식 설정 (8 bits, 1 stop bit, no parity)
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
+                } 
+                // CH34x 호환 초기화 (추가)
+                else if (device.vendorId === 0x1a86) {
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
                 }
 
                 connStatus.innerHTML = '<span class="status-dot bg-green-500"></span>연결됨';
                 connectBtn.style.display = 'none';
-                modeText.innerText = "로봇 조종 준비 완료!";
+                modeText.innerText = "연결 성공! 로봇을 움직여보세요.";
                 
                 if (sendTimer) clearInterval(sendTimer);
                 sendTimer = setInterval(sendPacket, 50); 
             } catch (err) {
                 console.error("Connection Error:", err);
-                modeText.innerText = "연결 실패: 장치 설정을 확인하세요.";
+                modeText.innerText = "연결 실패: 장치를 다시 확인하세요.";
             }
         });
 
         async function sendPacket() {
             if (!device || !device.opened) return;
             
+            // 펌웨어 aiservo_1.0.ino 패킷 규격 [FF 55 Mode UD LR GR ...]
             const packet = new Uint8Array([
-                0xFF, 0x55, 0x01, angles.ud, angles.lr, angles.gr,
-                0x02, 0x00, 0x00, 0x00, 0x00, 0x00
+                0xFF, 0x55, 
+                0x01,           // Mode (1: AI)
+                angles.ud,      // SERVO1
+                angles.lr,      // SERVO2
+                angles.gr,      // SERVO3
+                0x02,           // NeoPixel 모두
+                0, 0, 0,        // RGB
+                0,              // Buzzer
+                0               // Blue LED
             ]);
 
             try {
+                // FTDI는 보통 엔드포인트 2번을 통해 데이터를 내보냅니다.
                 await device.transferOut(endpointOut, packet);
             } catch (e) {
-                // 전송 실패 시 엔드포인트 번호 자동 시도 (일부 보드 대응)
-                try { await device.transferOut(1, packet); } catch(e2) {}
+                // 전송 실패 시 대체 엔드포인트(1번) 시도
+                try { await device.transferOut(0x01, packet); } catch(e2) {}
             }
         }
 
-        // --- MediaPipe Hands 설정 ---
+        // --- MediaPipe 손가락 인식 로직 ---
         const videoElement = document.getElementById('inputVideo');
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
@@ -167,18 +166,16 @@
                 const landmarks = results.multiHandLandmarks[0];
                 if (currentMode === 'gesture') {
                     const wrist = landmarks[0];
-                    const thumbTip = landmarks[4];
-                    const indexTip = landmarks[8];
+                    const thumb = landmarks[4];
+                    const index = landmarks[8];
                     
-                    // LR: 좌우 (반전)
+                    // 각도 매핑
                     angles.lr = Math.round(180 - (wrist.x * 180));
-                    // UD: 상하
                     angles.ud = Math.round(wrist.y * 180);
-                    // GR: 집게
-                    const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+                    const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
                     angles.gr = dist < 0.07 ? 180 : (dist > 0.15 ? 0 : 90);
                     
-                    updateDisplay();
+                    updateUI();
                 }
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
@@ -196,15 +193,15 @@
         });
         camera.start();
 
-        // --- 터치 제어 ---
+        // --- 터치 제어 기능 ---
         const mainViewport = document.getElementById('mainViewport');
         const touchPoint = document.getElementById('touchPoint');
 
-        mainViewport.addEventListener('touchstart', (e) => handleTouch(e, true));
-        mainViewport.addEventListener('touchmove', (e) => handleTouch(e, true));
+        mainViewport.addEventListener('touchstart', handleTouch);
+        mainViewport.addEventListener('touchmove', handleTouch);
         mainViewport.addEventListener('touchend', () => { touchPoint.style.display = 'none'; });
 
-        function handleTouch(e, visual) {
+        function handleTouch(e) {
             if (currentMode !== 'touch') return;
             e.preventDefault();
             const rect = mainViewport.getBoundingClientRect();
@@ -212,16 +209,14 @@
             const x = (touch.clientX - rect.left) / rect.width;
             const y = (touch.clientY - rect.top) / rect.height;
 
-            if (visual) {
-                touchPoint.style.display = 'block';
-                touchPoint.style.left = (touch.clientX - rect.left) + 'px';
-                touchPoint.style.top = (touch.clientY - rect.top) + 'px';
-            }
+            touchPoint.style.display = 'block';
+            touchPoint.style.left = (touch.clientX - rect.left) + 'px';
+            touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
             angles.lr = Math.round(180 - (x * 180));
             angles.ud = Math.round(y * 180);
-            if (x > 0.75) angles.gr = Math.round(y * 180);
-            updateDisplay();
+            if (x > 0.8) angles.gr = Math.round(y * 180);
+            updateUI();
         }
 
         const btnGesture = document.getElementById('modeGesture');
@@ -231,15 +226,17 @@
             currentMode = 'gesture';
             btnGesture.className = "flex-1 py-3 rounded-lg border btn-active font-bold transition-all";
             btnTouch.className = "flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all";
+            modeText.innerText = "카메라를 향해 손을 보여주세요";
         };
 
         btnTouch.onclick = () => {
             currentMode = 'touch';
             btnTouch.className = "flex-1 py-3 rounded-lg border btn-active font-bold transition-all";
             btnGesture.className = "flex-1 py-3 rounded-lg border btn-inactive font-bold transition-all";
+            modeText.innerText = "화면을 터치하여 관절을 조종하세요";
         };
 
-        function updateDisplay() {
+        function updateUI() {
             valUD.innerText = angles.ud;
             valLR.innerText = angles.lr;
             valGR.innerText = angles.gr;
