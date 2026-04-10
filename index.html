@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (V1.5)</title>
+    <title>AI 로봇집게 태블릿 제어기 (V1.6)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -91,7 +91,7 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.5</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.6 (High Sens.)</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-xs text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -190,7 +190,8 @@
                 showMessage("조종 준비 완료!");
                 
                 if (sendTimer) clearInterval(sendTimer);
-                sendTimer = setInterval(sendPacket, 50); 
+                // [개선] 전송 속도를 30ms(약 33fps)로 단축하여 실시간성 강화
+                sendTimer = setInterval(sendPacket, 30); 
             } catch (err) {
                 console.error(err);
                 showMessage("연결 실패", false);
@@ -210,12 +211,13 @@
         const canvasCtx = canvasElement.getContext('2d');
 
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
+        // [개선] modelComplexity를 0으로 설정하여 태블릿에서 연산 속도를 높임
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
         hands.onResults(onResults);
 
-        // 범위를 확장하여 화면 구석까지 조종 가능하게 함 (0.1~0.9 범위를 0~180도로 매핑)
+        // 범위를 확장하여 화면 구석까지 조종 가능하게 함 (0.15~0.85 범위를 0~180도로 매핑)
         function mapAngle(val) {
-            let result = (val - 0.1) / 0.8 * 180;
+            let result = (val - 0.15) / 0.7 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
         }
 
@@ -234,19 +236,22 @@
                     angles.lr = mapAngle(wrist.x);
                     angles.ud = mapAngle(wrist.y);
 
-                    // [수정] 그리퍼 민감도 상향: 임계값을 좁혀서 더 빠르게 반응하도록 함
+                    // [개선] 그리퍼 민감도 상향: 임계값을 좁히고 반응 속도 개선
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    if (dist < 0.065) angles.gr = 180;      // 닫기 민감도 상향 (0.055 -> 0.065)
-                    else if (dist > 0.11) angles.gr = 0;   // 열기 민감도 상향 (0.13 -> 0.11)
-                    else angles.gr = 90;                  // 그 외 중간 유지
+                    if (dist < 0.07) angles.gr = 180;      // 닫기 (이전보다 더 쉽게 닫힘)
+                    else if (dist > 0.10) angles.gr = 0;   // 열기 (이전보다 더 쉽게 열림)
+                    else angles.gr = 90;                  // 중간 유지
                 }
                 
-                // 관절 좌표 표시 (미러링 영상과 일치하도록 x좌표 그대로 사용)
+                // [개선] 거울 모드 영상(CSS rotateY)에 맞게 관절 표시 좌표 반전 (1 - landmark.x)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
-                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
+                    canvasCtx.strokeStyle = "white";
+                    canvasCtx.lineWidth = 1;
+                    canvasCtx.stroke();
                 }
             }
             canvasCtx.restore();
@@ -279,11 +284,11 @@
             touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
             if (x > 0.8) {
-                // 우측 20% 영역: 그리퍼만 조종 (상하 관절 고정)
+                // 우측 20% 영역: 그리퍼만 조종
                 angles.gr = mapAngle(y);
             } else {
-                // 그 외 영역: 좌우/상하 관절 조종
-                angles.lr = mapAngle(1 - x); // 터치는 직관을 위해 좌우 반전
+                // 그 외 영역: 좌우/상하 관절 조종 (터치는 직관을 위해 1-x 사용)
+                angles.lr = mapAngle(1 - x);
                 angles.ud = mapAngle(y);
             }
         }
