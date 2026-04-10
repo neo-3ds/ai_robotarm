@@ -3,28 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (FTDI 지원)</title>
+    <title>AI 로봇집게 태블릿 제어기 (V1.2)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0f172a; color: white; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
-        .canvas-container { position: relative; width: 100%; height: 50vh; background: #1e293b; border-radius: 1rem; overflow: hidden; border: 1px solid #334155; }
+        
+        /* 일반 모드와 전체화면 모드 스타일링 */
+        .canvas-container { 
+            position: relative; 
+            width: 100%; 
+            height: 50vh; 
+            background: #1e293b; 
+            border-radius: 1rem; 
+            overflow: hidden; 
+            border: 1px solid #334155; 
+            transition: all 0.3s ease;
+        }
+        
+        .canvas-container.is-fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 100;
+            border-radius: 0;
+        }
+
         video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.2; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
+        
         .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
         .touch-point { position: absolute; width: 45px; height: 45px; border: 2px solid #22d3ee; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 50; background: rgba(34, 211, 238, 0.15); box-shadow: 0 0 15px rgba(34, 211, 238, 0.5); }
+        
         .btn-active { background-color: #164e63; border-color: #22d3ee; color: #ecfeff; }
         .btn-inactive { background-color: #334155; border-color: #475569; color: #94a3b8; }
+
+        /* 전체화면 버튼 */
+        #expandBtn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 110;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
     </style>
 </head>
 <body class="p-4 flex flex-col items-center">
-    <div class="w-full max-w-2xl">
+    <div id="ui-header" class="w-full max-w-2xl">
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI FT232R Detected</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x Integrated</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-sm text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -35,13 +71,21 @@
         <div id="mainViewport" class="canvas-container shadow-2xl mb-6">
             <video id="inputVideo" playsinline></video>
             <canvas id="outputCanvas"></canvas>
+            
+            <!-- 확대 축소 버튼 -->
+            <button id="expandBtn" title="전체화면 전환">
+                <svg id="expandIcon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="white" viewBox="0 0 16 16">
+                    <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
+                </svg>
+            </button>
+
             <div id="touchPoint" class="touch-point"></div>
             <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
                 <p id="modeText" class="bg-slate-900/60 backdrop-blur-sm px-4 py-2 rounded-full text-xs font-medium text-slate-200">USB를 연결하고 모드를 선택하세요</p>
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 w-full">
+        <div id="ui-footer" class="grid grid-cols-2 gap-4 w-full">
             <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
                 <label class="text-[10px] text-slate-500 block mb-2 font-bold uppercase tracking-widest">Control Mode</label>
                 <div class="flex space-x-2">
@@ -52,104 +96,94 @@
             <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
                 <label class="text-[10px] text-slate-500 block mb-2 font-bold uppercase tracking-widest">Real-time Angles</label>
                 <div class="grid grid-cols-3 gap-1 text-center font-mono">
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">UD</div><div id="valUD" class="text-cyan-400 text-lg">90</div></div>
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">LR</div><div id="valLR" class="text-cyan-400 text-lg">90</div></div>
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">GR</div><div id="valGR" class="text-cyan-400 text-lg">90</div></div>
+                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">상하</div><div id="valUD" class="text-cyan-400 text-lg">90</div></div>
+                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">좌우</div><div id="valLR" class="text-cyan-400 text-lg">90</div></div>
+                    <div class="bg-slate-900 rounded p-1"><div class="text-[8px] text-slate-500">집게</div><div id="valGR" class="text-cyan-400 text-lg">90</div></div>
                 </div>
             </div>
-        </div>
-
-        <div class="mt-6 p-4 bg-slate-900/40 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed text-left">
-            <ul class="list-disc list-inside space-y-1">
-                <li><strong>FTDI 칩셋 최적화:</strong> 'FT232R USB UART'를 선택해 주세요.</li>
-                <li><strong>OTG 젠더:</strong> 반드시 '데이터 통신용' 젠더를 사용해야 합니다.</li>
-                <li><strong>동작 안함:</strong> 인식은 되나 움직이지 않으면 USB를 뺐다 다시 꽂아주세요.</li>
-            </ul>
         </div>
     </div>
 
     <script>
-        // --- WebUSB FTDI 전용 드라이버 구현 ---
+        // --- 하드웨어 통신 설정 ---
         let device;
-        let endpointOut = 0x02; // FT232R 기본 OUT 엔드포인트
+        let endpointOut = 0x02; 
         let currentMode = 'gesture';
+        let isFullscreen = false;
         let angles = { ud: 90, lr: 90, gr: 90 };
         let sendTimer = null;
 
         const connectBtn = document.getElementById('connectBtn');
         const connStatus = document.getElementById('connStatus');
         const modeText = document.getElementById('modeText');
+        const chipInfo = document.getElementById('chipInfo');
+        const mainViewport = document.getElementById('mainViewport');
+        const expandBtn = document.getElementById('expandBtn');
+        const uiHeader = document.getElementById('ui-header');
+        const uiFooter = document.getElementById('ui-footer');
         const valUD = document.getElementById('valUD'), valLR = document.getElementById('valLR'), valGR = document.getElementById('valGR');
 
+        // 전체화면 토글
+        expandBtn.onclick = () => {
+            isFullscreen = !isFullscreen;
+            if (isFullscreen) {
+                mainViewport.classList.add('is-fullscreen');
+                uiFooter.classList.add('hidden');
+                document.querySelector('header').classList.add('hidden');
+            } else {
+                mainViewport.classList.remove('is-fullscreen');
+                uiFooter.classList.remove('hidden');
+                document.querySelector('header').classList.remove('hidden');
+            }
+            // 캔버스 사이즈 재조정
+            setTimeout(() => {
+                canvasElement.width = mainViewport.offsetWidth;
+                canvasElement.height = mainViewport.offsetHeight;
+            }, 100);
+        };
+
+        // USB 연결 이벤트
         connectBtn.addEventListener('click', async () => {
             try {
-                // FTDI Vendor ID: 0x0403
                 device = await navigator.usb.requestDevice({ 
-                    filters: [
-                        { vendorId: 0x0403 }, // FTDI
-                        { vendorId: 0x1a86 }, // CH34x
-                        { vendorId: 0x2341 }  // Arduino
-                    ] 
+                    filters: [{ vendorId: 0x0403 }, { vendorId: 0x1a86 }, { vendorId: 0x2341 }] 
                 });
 
                 await device.open();
                 if (device.configuration === null) await device.selectConfiguration(1);
                 await device.claimInterface(0);
 
-                // --- FTDI 칩셋 전용 초기화 (115200 Baudrate) ---
                 if (device.vendorId === 0x0403) {
-                    // 1. 리셋
+                    chipInfo.innerText = "FTDI FT232R Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
-                    // 2. 보레이트 설정 (115200: FTDI의 경우 특수한 분주기 값 사용)
-                    // 3000000 / 115200 = 26.0416... -> divisor 26, sub-integer 0
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
-                    // 3. 데이터 형식 설정 (8 bits, 1 stop bit, no parity)
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
-                } 
-                // CH34x 호환 초기화 (추가)
-                else if (device.vendorId === 0x1a86) {
+                } else if (device.vendorId === 0x1a86) {
+                    chipInfo.innerText = "CH34x Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
                 }
 
                 connStatus.innerHTML = '<span class="status-dot bg-green-500"></span>연결됨';
                 connectBtn.style.display = 'none';
-                modeText.innerText = "연결 성공! 로봇을 움직여보세요.";
+                modeText.innerText = "로봇 조종 준비 완료!";
                 
                 if (sendTimer) clearInterval(sendTimer);
                 sendTimer = setInterval(sendPacket, 50); 
             } catch (err) {
                 console.error("Connection Error:", err);
-                modeText.innerText = "연결 실패: 장치를 다시 확인하세요.";
+                modeText.innerText = "연결 실패: 기기를 다시 확인하세요.";
             }
         });
 
         async function sendPacket() {
             if (!device || !device.opened) return;
-            
-            // 펌웨어 aiservo_1.0.ino 패킷 규격 [FF 55 Mode UD LR GR ...]
-            const packet = new Uint8Array([
-                0xFF, 0x55, 
-                0x01,           // Mode (1: AI)
-                angles.ud,      // SERVO1
-                angles.lr,      // SERVO2
-                angles.gr,      // SERVO3
-                0x02,           // NeoPixel 모두
-                0, 0, 0,        // RGB
-                0,              // Buzzer
-                0               // Blue LED
-            ]);
-
-            try {
-                // FTDI는 보통 엔드포인트 2번을 통해 데이터를 내보냅니다.
-                await device.transferOut(endpointOut, packet);
-            } catch (e) {
-                // 전송 실패 시 대체 엔드포인트(1번) 시도
-                try { await device.transferOut(0x01, packet); } catch(e2) {}
-            }
+            const packet = new Uint8Array([0xFF, 0x55, 0x01, angles.ud, angles.lr, angles.gr, 0x02, 0, 0, 0, 0, 0]);
+            try { await device.transferOut(endpointOut, packet); } 
+            catch (e) { try { await device.transferOut(0x01, packet); } catch(e2) {} }
         }
 
-        // --- MediaPipe 손가락 인식 로직 ---
+        // --- MediaPipe 인식 로직 ---
         const videoElement = document.getElementById('inputVideo');
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
@@ -169,8 +203,8 @@
                     const thumb = landmarks[4];
                     const index = landmarks[8];
                     
-                    // 각도 매핑
-                    angles.lr = Math.round(180 - (wrist.x * 180));
+                    // [수정] 좌우(LR) 반전: 180 - x -> x 로 변경 (카메라 미러링 반영)
+                    angles.lr = Math.round(wrist.x * 180);
                     angles.ud = Math.round(wrist.y * 180);
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
                     angles.gr = dist < 0.07 ? 180 : (dist > 0.15 ? 0 : 90);
@@ -193,10 +227,8 @@
         });
         camera.start();
 
-        // --- 터치 제어 기능 ---
-        const mainViewport = document.getElementById('mainViewport');
+        // --- 터치 제어 로직 ---
         const touchPoint = document.getElementById('touchPoint');
-
         mainViewport.addEventListener('touchstart', handleTouch);
         mainViewport.addEventListener('touchmove', handleTouch);
         mainViewport.addEventListener('touchend', () => { touchPoint.style.display = 'none'; });
@@ -213,9 +245,15 @@
             touchPoint.style.left = (touch.clientX - rect.left) + 'px';
             touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
-            angles.lr = Math.round(180 - (x * 180));
-            angles.ud = Math.round(y * 180);
-            if (x > 0.8) angles.gr = Math.round(y * 180);
+            // [수정] 그리퍼 조종 구역(우측 20%)과 관절 조종 구역 분리
+            if (x > 0.8) {
+                // 그리퍼 조종 시에는 상하 관절(ud)을 건드리지 않음
+                angles.gr = Math.round(y * 180);
+            } else {
+                // 일반 구역에서는 상하/좌우 조종
+                angles.lr = Math.round(180 - (x * 180));
+                angles.ud = Math.round(y * 180);
+            }
             updateUI();
         }
 
@@ -243,8 +281,8 @@
         }
 
         window.addEventListener('resize', () => {
-            canvasElement.width = canvasElement.offsetWidth;
-            canvasElement.height = canvasElement.offsetHeight;
+            canvasElement.width = mainViewport.offsetWidth;
+            canvasElement.height = mainViewport.offsetHeight;
         });
         window.dispatchEvent(new Event('resize'));
     </script>
