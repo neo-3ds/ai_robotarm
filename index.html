@@ -232,7 +232,7 @@
                     const index = landmarks[8];
                     
                   
-                    angles.lr = mapAngle(wrist.x);
+                    angles.lr = mapAngle(1-wrist.x);
                     // 상하(UD) 범위 확대
                     angles.ud = mapAngle(wrist.y);
 
@@ -247,7 +247,7 @@
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
                     // 미러링된 영상과 일치하도록 좌표 매핑
-                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
+                    canvasCtx.arc((1-landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
                     canvasCtx.strokeStyle = "white";
