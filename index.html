@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (V1.5)</title>
+    <title>AI 로봇집게 태블릿 제어기 (V1.7)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -91,7 +91,7 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.5</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.7</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-xs text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -179,7 +179,6 @@
                     chipInfo.innerText = "FTDI Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
                 } else if (device.vendorId === 0x1a86) {
                     chipInfo.innerText = "CH34x Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
@@ -191,7 +190,8 @@
                 showMessage("조종 준비 완료!");
                 
                 if (sendTimer) clearInterval(sendTimer);
-                sendTimer = setInterval(sendPacket, 50); 
+                // 전송 속도 상향 (30ms)
+                sendTimer = setInterval(sendPacket, 30); 
             } catch (err) {
                 console.error(err);
                 showMessage("연결 실패", false);
@@ -214,9 +214,9 @@
         hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
         hands.onResults(onResults);
 
-        // 범위를 확장하여 화면 구석까지 조종 가능하게 함 (0.1~0.9 범위를 0~180도로 매핑)
+        // 조종 범위를 크게 수정 (0.2~0.8 범위를 0~180도로 매핑하여 끝부분 도달 용이)
         function mapAngle(val) {
-            let result = (val - 0.1) / 0.8 * 180;
+            let result = (val - 0.2) / 0.6 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
         }
 
@@ -231,23 +231,28 @@
                     const thumb = landmarks[4];
                     const index = landmarks[8];
                     
-                    // 좌우(LR) 및 상하(UD) 범위 확대 매핑
-                    angles.lr = mapAngle(wrist.x);
+                    // 좌우(LR) 방향 복구 및 범위 확대 (원래대로 1-x 적용)
+                    angles.lr = mapAngle(1 - wrist.x);
+                    // 상하(UD) 범위 확대
                     angles.ud = mapAngle(wrist.y);
 
                     // 그리퍼 민감도 상향
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    if (dist < 0.065) angles.gr = 180;
-                    else if (dist > 0.11) angles.gr = 0;
+                    if (dist < 0.07) angles.gr = 180;
+                    else if (dist > 0.12) angles.gr = 0;
                     else angles.gr = 90;
                 }
                 
-                // 관절 좌표 표시 (미러링 영상 rotateY(180deg)에 맞춰 1-x로 보정)
+                // 관절 좌표 표시 수정: 반대 방향으로 움직이는 문제 해결 (landmark.x 사용)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
-                    canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    // 미러링된 영상과 일치하도록 좌표 매핑
+                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
+                    canvasCtx.strokeStyle = "white";
+                    canvasCtx.lineWidth = 1;
+                    canvasCtx.stroke();
                 }
             }
             canvasCtx.restore();
@@ -280,10 +285,10 @@
             touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
             if (x > 0.8) {
-                // 우측 20% 영역: 그리퍼만 조종
+                // 우측 그리퍼 조종 범위 확대
                 angles.gr = mapAngle(y);
             } else {
-                // 그 외 영역: 좌우/상하 관절 조종 (터치는 직관을 위해 1-x 사용)
+                // 관절 조종 범위 확대 (터치는 직관을 위해 1-x 사용)
                 angles.lr = mapAngle(1 - x);
                 angles.ud = mapAngle(y);
             }
@@ -296,14 +301,14 @@
             currentMode = 'gesture';
             btnGesture.className = "btn-mode btn-active";
             btnTouch.className = "btn-mode btn-inactive";
-            showMessage("동작 인식 모드 시작");
+            showMessage("동작 인식 모드");
         };
 
         btnTouch.onclick = () => {
             currentMode = 'touch';
             btnTouch.className = "btn-mode btn-active";
             btnGesture.className = "btn-mode btn-inactive";
-            showMessage("화면 터치 모드 시작");
+            showMessage("화면 터치 모드");
         };
 
         window.addEventListener('resize', () => {
