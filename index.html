@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (V1.3)</title>
+    <title>AI 로봇집게 태블릿 제어기 (V1.4)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -15,7 +15,7 @@
         .canvas-container { 
             position: relative; 
             width: 100%; 
-            height: 50vh; 
+            height: 65vh; 
             background: #1e293b; 
             border-radius: 1rem; 
             overflow: hidden; 
@@ -23,50 +23,63 @@
             transition: all 0.3s ease;
         }
         
-        /* 전체화면 모드 시 카메라 영역과 푸터가 겹치지 않게 조정 */
+        /* 전체화면 모드 스타일 */
         .canvas-container.is-fullscreen {
             position: fixed;
             top: 0;
             left: 0;
             width: 100vw;
-            height: calc(100vh - 120px); /* 하단 UI 공간 확보 */
+            height: 100vh;
             z-index: 100;
             border-radius: 0;
             border: none;
         }
 
-        #ui-footer.is-fullscreen {
+        /* 투명 하단 UI */
+        #ui-footer {
             position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100vw;
-            height: 120px;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 500px;
             z-index: 110;
-            background: rgba(15, 23, 42, 0.9);
-            padding: 10px 20px;
-            border-top: 1px solid #334155;
-            display: grid !important;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(8px);
+            padding: 12px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.25; }
+        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
         
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
-        .touch-point { position: absolute; width: 45px; height: 45px; border: 2px solid #22d3ee; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 50; background: rgba(34, 211, 238, 0.15); box-shadow: 0 0 15px rgba(34, 211, 238, 0.5); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+        .touch-point { position: absolute; width: 45px; height: 45px; border: 2px solid rgba(34, 211, 238, 0.5); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 50; background: rgba(34, 211, 238, 0.1); }
         
-        .btn-active { background-color: #164e63; border-color: #22d3ee; color: #ecfeff; }
-        .btn-inactive { background-color: #334155; border-color: #475569; color: #94a3b8; }
+        /* 투명 버튼 스타일 */
+        .btn-mode {
+            flex: 1;
+            padding: 14px;
+            border-radius: 14px;
+            font-weight: bold;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn-active { background: rgba(34, 211, 238, 0.2); border-color: rgba(34, 211, 238, 0.5); color: #22d3ee; }
+        .btn-inactive { background: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.4); }
 
-        /* 전체화면 버튼 위치 수정 (왼쪽 위로 이동) */
+        /* 확대 버튼 (왼쪽 상단 고정) */
         #expandBtn {
             position: absolute;
-            top: 1rem;
-            left: 1rem; /* 오른쪽에서 왼쪽으로 변경 */
+            top: 1.5rem;
+            left: 1.5rem;
             z-index: 120;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.5);
             padding: 12px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(4px);
         }
     </style>
@@ -76,20 +89,19 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono tracking-tighter">FTDI/CH34x v1.3</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.4</p>
             </div>
             <div class="flex items-center space-x-2">
-                <span id="connStatus" class="text-sm text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
-                <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all active:scale-95">USB 연결</button>
+                <span id="connStatus" class="text-xs text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
+                <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95">USB 연결</button>
             </div>
         </header>
 
-        <div id="mainViewport" class="canvas-container shadow-2xl mb-6">
+        <div id="mainViewport" class="canvas-container shadow-2xl">
             <video id="inputVideo" playsinline></video>
             <canvas id="outputCanvas"></canvas>
             
-            <!-- 확대 축소 버튼 (왼쪽 상단) -->
-            <button id="expandBtn" title="화면 크기 전환">
+            <button id="expandBtn">
                 <svg id="expandIcon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="white" viewBox="0 0 16 16">
                     <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
                 </svg>
@@ -97,31 +109,18 @@
 
             <div id="touchPoint" class="touch-point"></div>
             <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-500">
-                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-6 py-3 rounded-full text-sm font-bold text-cyan-200 border border-cyan-900/50 shadow-xl">USB를 연결하고 모드를 선택하세요</p>
+                <p id="modeText" class="bg-slate-900/60 backdrop-blur-md px-6 py-3 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-xl">USB 연결 후 모드를 선택하세요</p>
             </div>
         </div>
 
-        <div id="ui-footer" class="grid grid-cols-2 gap-4 w-full">
-            <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700 shadow-lg">
-                <label class="text-[9px] text-slate-500 block mb-1 font-bold uppercase tracking-widest">Control Mode</label>
-                <div class="flex space-x-2">
-                    <button id="modeGesture" class="flex-1 py-2 text-sm rounded-lg border btn-active font-bold transition-all active:scale-95">동작 인식</button>
-                    <button id="modeTouch" class="flex-1 py-2 text-sm rounded-lg border btn-inactive font-bold transition-all active:scale-95">화면 터치</button>
-                </div>
-            </div>
-            <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700 shadow-lg">
-                <label class="text-[9px] text-slate-500 block mb-1 font-bold uppercase tracking-widest">Real-time Status</label>
-                <div class="grid grid-cols-3 gap-1 text-center font-mono">
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[7px] text-slate-500">UD</div><div id="valUD" class="text-cyan-400 text-base">90</div></div>
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[7px] text-slate-500">LR</div><div id="valLR" class="text-cyan-400 text-base">90</div></div>
-                    <div class="bg-slate-900 rounded p-1"><div class="text-[7px] text-slate-500">GR</div><div id="valGR" class="text-cyan-400 text-base">90</div></div>
-                </div>
-            </div>
+        <div id="ui-footer" class="flex space-x-3">
+            <button id="modeGesture" class="btn-mode btn-active">동작 인식</button>
+            <button id="modeTouch" class="btn-mode btn-inactive">화면 터치</button>
         </div>
     </div>
 
     <script>
-        // --- 전역 설정 및 상태 ---
+        // --- 하드웨어 통신 및 상태 ---
         let device;
         let endpointOut = 0x02; 
         let currentMode = 'gesture';
@@ -139,51 +138,43 @@
         const expandBtn = document.getElementById('expandBtn');
         const uiHeader = document.getElementById('ui-header');
         const uiFooter = document.getElementById('ui-footer');
-        const valUD = document.getElementById('valUD'), valLR = document.getElementById('valLR'), valGR = document.getElementById('valGR');
 
-        // 메시지 표시 및 자동 숨김 함수
         function showMessage(text, autoHide = true) {
             modeText.innerText = text;
             touchOverlay.style.opacity = "1";
             if (overlayTimer) clearTimeout(overlayTimer);
             if (autoHide) {
-                overlayTimer = setTimeout(() => {
-                    touchOverlay.style.opacity = "0";
-                }, 3000);
+                overlayTimer = setTimeout(() => { touchOverlay.style.opacity = "0"; }, 2500);
             }
         }
 
-        // 전체화면 토글 (UI 요소 유지)
+        // 전체화면 토글
         expandBtn.onclick = (e) => {
-            e.stopPropagation(); // 터치 이벤트 전파 방지
+            e.stopPropagation();
             isFullscreen = !isFullscreen;
             if (isFullscreen) {
                 mainViewport.classList.add('is-fullscreen');
-                uiFooter.classList.add('is-fullscreen');
                 uiHeader.querySelector('header').classList.add('hidden');
             } else {
                 mainViewport.classList.remove('is-fullscreen');
-                uiFooter.classList.remove('is-fullscreen');
                 uiHeader.querySelector('header').classList.remove('hidden');
             }
             setTimeout(() => {
                 canvasElement.width = mainViewport.offsetWidth;
                 canvasElement.height = mainViewport.offsetHeight;
-            }, 150);
+            }, 100);
         };
 
         // USB 연결
         connectBtn.addEventListener('click', async () => {
             try {
-                device = await navigator.usb.requestDevice({ 
-                    filters: [{ vendorId: 0x0403 }, { vendorId: 0x1a86 }, { vendorId: 0x2341 }] 
-                });
+                device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403 }, { vendorId: 0x1a86 }, { vendorId: 0x2341 }] });
                 await device.open();
                 if (device.configuration === null) await device.selectConfiguration(1);
                 await device.claimInterface(0);
 
                 if (device.vendorId === 0x0403) {
-                    chipInfo.innerText = "FTDI FT232R Connected";
+                    chipInfo.innerText = "FTDI Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
                 } else if (device.vendorId === 0x1a86) {
@@ -194,13 +185,13 @@
 
                 connStatus.innerHTML = '<span class="status-dot bg-green-500"></span>연결됨';
                 connectBtn.style.display = 'none';
-                showMessage("로봇 조종 준비 완료!");
+                showMessage("조종 준비 완료!");
                 
                 if (sendTimer) clearInterval(sendTimer);
                 sendTimer = setInterval(sendPacket, 50); 
             } catch (err) {
                 console.error(err);
-                showMessage("연결 실패: 기기를 확인하세요", false);
+                showMessage("연결 실패", false);
             }
         });
 
@@ -211,7 +202,7 @@
             catch (e) { try { await device.transferOut(0x01, packet); } catch(e2) {} }
         }
 
-        // --- MediaPipe 인식 로직 ---
+        // --- MediaPipe Hands ---
         const videoElement = document.getElementById('inputVideo');
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
@@ -220,7 +211,13 @@
         hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
         hands.onResults(onResults);
 
-        // 그리퍼 상태 안정화를 위한 변수
+        // 입력 범위를 확장하여 매핑 (0.1~0.9 -> 0~180)
+        function mapAngle(val, isLR = false) {
+            // 좌우의 경우 사용자의 요청에 따라 반전 여부 결정 (현재 wrist.x 기반)
+            let result = (val - 0.12) / 0.76 * 180;
+            return Math.max(0, Math.min(180, Math.round(result)));
+        }
+
         let lastGr = 90;
 
         function onResults(results) {
@@ -234,27 +231,21 @@
                     const thumb = landmarks[4];
                     const index = landmarks[8];
                     
-                    // [복구] 좌우(LR) 원래 방향으로 복구: 180 - (wrist.x * 180)
-                    angles.lr = Math.round(180 - (wrist.x * 180));
-                    angles.ud = Math.round(wrist.y * 180);
+                    // [수정] 좌우(LR) 방향 복구 및 범위 확대
+                    angles.lr = mapAngle(wrist.x);
+                    // [수정] 상하(UD) 범위 확대
+                    angles.ud = mapAngle(wrist.y);
 
-                    // [개선] 그리퍼 튐 방지 및 안정화 로직
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    let targetGr = lastGr;
-                    
-                    // 이력 현상(Hysteresis) 적용으로 떨림 방지
-                    if (dist < 0.055) targetGr = 180;      // 확실히 닫기
-                    else if (dist > 0.13) targetGr = 0;   // 확실히 열기
-                    else if (dist > 0.08 && dist < 0.10) targetGr = 90; // 중간 상태
-
-                    angles.gr = targetGr;
-                    lastGr = targetGr;
-                    
-                    updateUI();
+                    if (dist < 0.055) angles.gr = 180;
+                    else if (dist > 0.13) angles.gr = 0;
+                    else if (dist > 0.08 && dist < 0.10) angles.gr = 90;
                 }
+                
+                // [수정] 거울 모드 영상에 맞게 관절 표시 좌표 반전 (1 - x)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
-                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
                 }
@@ -268,7 +259,7 @@
         });
         camera.start();
 
-        // --- 터치 제어 로직 ---
+        // --- 터치 제어 ---
         const touchPoint = document.getElementById('touchPoint');
         mainViewport.addEventListener('touchstart', handleTouch);
         mainViewport.addEventListener('touchmove', handleTouch);
@@ -276,7 +267,6 @@
 
         function handleTouch(e) {
             if (currentMode !== 'touch') return;
-            // 확대 버튼 터치 시 무시
             if (e.target.closest('#expandBtn')) return;
 
             e.preventDefault();
@@ -289,16 +279,14 @@
             touchPoint.style.left = (touch.clientX - rect.left) + 'px';
             touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
-            // [수정] 그리퍼 조종 구역(우측 20%)과 관절 조종 구역 완전 분리
+            // 터치 모드에서도 범위 확대 매핑 적용
             if (x > 0.8) {
-                // 그리퍼만 조종
-                angles.gr = Math.round(y * 180);
+                angles.gr = mapAngle(y);
             } else {
-                // 관절만 조종 (상하 관절 포함)
-                angles.lr = Math.round(180 - (x * 180));
-                angles.ud = Math.round(y * 180);
+                // 좌우 터치는 직관을 위해 1-x 사용
+                angles.lr = mapAngle(1 - x);
+                angles.ud = mapAngle(y);
             }
-            updateUI();
         }
 
         const btnGesture = document.getElementById('modeGesture');
@@ -306,23 +294,17 @@
 
         btnGesture.onclick = () => {
             currentMode = 'gesture';
-            btnGesture.className = "flex-1 py-2 text-sm rounded-lg border btn-active font-bold transition-all";
-            btnTouch.className = "flex-1 py-2 text-sm rounded-lg border btn-inactive font-bold transition-all";
-            showMessage("동작 인식 모드 시작");
+            btnGesture.className = "btn-mode btn-active";
+            btnTouch.className = "btn-mode btn-inactive";
+            showMessage("동작 인식 모드");
         };
 
         btnTouch.onclick = () => {
             currentMode = 'touch';
-            btnTouch.className = "flex-1 py-2 text-sm rounded-lg border btn-active font-bold transition-all";
-            btnGesture.className = "flex-1 py-2 text-sm rounded-lg border btn-inactive font-bold transition-all";
-            showMessage("화면 터치 모드 시작");
+            btnTouch.className = "btn-mode btn-active";
+            btnGesture.className = "btn-mode btn-inactive";
+            showMessage("화면 터치 모드");
         };
-
-        function updateUI() {
-            valUD.innerText = angles.ud;
-            valLR.innerText = angles.lr;
-            valGR.innerText = angles.gr;
-        }
 
         window.addEventListener('resize', () => {
             canvasElement.width = mainViewport.offsetWidth;
