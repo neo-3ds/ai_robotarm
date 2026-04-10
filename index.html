@@ -179,6 +179,7 @@
                     chipInfo.innerText = "FTDI Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
                 } else if (device.vendorId === 0x1a86) {
                     chipInfo.innerText = "CH34x Connected";
                     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
@@ -234,17 +235,17 @@
                     angles.lr = mapAngle(wrist.x);
                     angles.ud = mapAngle(wrist.y);
 
-                    // [수정] 그리퍼 민감도 상향: 임계값을 좁혀서 더 빠르게 반응하도록 함
+                    // 그리퍼 민감도 상향
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    if (dist < 0.065) angles.gr = 180;      // 닫기 민감도 상향 (0.055 -> 0.065)
-                    else if (dist > 0.11) angles.gr = 0;   // 열기 민감도 상향 (0.13 -> 0.11)
-                    else angles.gr = 90;                  // 그 외 중간 유지
+                    if (dist < 0.065) angles.gr = 180;
+                    else if (dist > 0.11) angles.gr = 0;
+                    else angles.gr = 90;
                 }
                 
-                // 관절 좌표 표시 (미러링 영상과 일치하도록 x좌표 그대로 사용)
+                // 관절 좌표 표시 (미러링 영상 rotateY(180deg)에 맞춰 1-x로 보정)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
-                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
                 }
@@ -279,11 +280,11 @@
             touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
             if (x > 0.8) {
-                // 우측 20% 영역: 그리퍼만 조종 (상하 관절 고정)
+                // 우측 20% 영역: 그리퍼만 조종
                 angles.gr = mapAngle(y);
             } else {
-                // 그 외 영역: 좌우/상하 관절 조종
-                angles.lr = mapAngle(1 - x); // 터치는 직관을 위해 좌우 반전
+                // 그 외 영역: 좌우/상하 관절 조종 (터치는 직관을 위해 1-x 사용)
+                angles.lr = mapAngle(1 - x);
                 angles.ud = mapAngle(y);
             }
         }
