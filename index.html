@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (V1.4)</title>
+    <title>AI 로봇집게 태블릿 제어기 (V1.5)</title>
     <!-- 라이브러리 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -45,10 +45,12 @@
             max-width: 500px;
             z-index: 110;
             background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(10px);
             padding: 12px;
             border-radius: 20px;
             border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 12px;
         }
 
         video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
@@ -89,7 +91,7 @@
         <header class="flex justify-between items-center mb-4">
             <div>
                 <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.4</p>
+                <p id="chipInfo" class="text-[10px] text-slate-400 font-mono">FTDI/CH34x v1.5</p>
             </div>
             <div class="flex items-center space-x-2">
                 <span id="connStatus" class="text-xs text-gray-400"><span class="status-dot bg-red-500"></span>연결 끊김</span>
@@ -113,7 +115,7 @@
             </div>
         </div>
 
-        <div id="ui-footer" class="flex space-x-3">
+        <div id="ui-footer">
             <button id="modeGesture" class="btn-mode btn-active">동작 인식</button>
             <button id="modeTouch" class="btn-mode btn-inactive">화면 터치</button>
         </div>
@@ -211,14 +213,11 @@
         hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.75, minTrackingConfidence: 0.75 });
         hands.onResults(onResults);
 
-        // 입력 범위를 확장하여 매핑 (0.1~0.9 -> 0~180)
-        function mapAngle(val, isLR = false) {
-            // 좌우의 경우 사용자의 요청에 따라 반전 여부 결정 (현재 wrist.x 기반)
-            let result = (val - 0.12) / 0.76 * 180;
+        // 범위를 확장하여 화면 구석까지 조종 가능하게 함 (0.1~0.9 범위를 0~180도로 매핑)
+        function mapAngle(val) {
+            let result = (val - 0.1) / 0.8 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
         }
-
-        let lastGr = 90;
 
         function onResults(results) {
             canvasCtx.save();
@@ -231,21 +230,21 @@
                     const thumb = landmarks[4];
                     const index = landmarks[8];
                     
-                    // [수정] 좌우(LR) 방향 복구 및 범위 확대
+                    // 좌우(LR) 및 상하(UD) 범위 확대 매핑
                     angles.lr = mapAngle(wrist.x);
-                    // [수정] 상하(UD) 범위 확대
                     angles.ud = mapAngle(wrist.y);
 
+                    // [수정] 그리퍼 민감도 상향: 임계값을 좁혀서 더 빠르게 반응하도록 함
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    if (dist < 0.055) angles.gr = 180;
-                    else if (dist > 0.13) angles.gr = 0;
-                    else if (dist > 0.08 && dist < 0.10) angles.gr = 90;
+                    if (dist < 0.065) angles.gr = 180;      // 닫기 민감도 상향 (0.055 -> 0.065)
+                    else if (dist > 0.11) angles.gr = 0;   // 열기 민감도 상향 (0.13 -> 0.11)
+                    else angles.gr = 90;                  // 그 외 중간 유지
                 }
                 
-                // [수정] 거울 모드 영상에 맞게 관절 표시 좌표 반전 (1 - x)
+                // 관절 좌표 표시 (미러링 영상과 일치하도록 x좌표 그대로 사용)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
-                    canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
+                    canvasCtx.arc(landmark.x * canvasElement.width, landmark.y * canvasElement.height, 4, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
                 }
@@ -279,12 +278,12 @@
             touchPoint.style.left = (touch.clientX - rect.left) + 'px';
             touchPoint.style.top = (touch.clientY - rect.top) + 'px';
 
-            // 터치 모드에서도 범위 확대 매핑 적용
             if (x > 0.8) {
+                // 우측 20% 영역: 그리퍼만 조종 (상하 관절 고정)
                 angles.gr = mapAngle(y);
             } else {
-                // 좌우 터치는 직관을 위해 1-x 사용
-                angles.lr = mapAngle(1 - x);
+                // 그 외 영역: 좌우/상하 관절 조종
+                angles.lr = mapAngle(1 - x); // 터치는 직관을 위해 좌우 반전
                 angles.ud = mapAngle(y);
             }
         }
@@ -296,14 +295,14 @@
             currentMode = 'gesture';
             btnGesture.className = "btn-mode btn-active";
             btnTouch.className = "btn-mode btn-inactive";
-            showMessage("동작 인식 모드");
+            showMessage("동작 인식 모드 시작");
         };
 
         btnTouch.onclick = () => {
             currentMode = 'touch';
             btnTouch.className = "btn-mode btn-active";
             btnGesture.className = "btn-mode btn-inactive";
-            showMessage("화면 터치 모드");
+            showMessage("화면 터치 모드 시작");
         };
 
         window.addEventListener('resize', () => {
