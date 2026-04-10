@@ -231,8 +231,8 @@
                     const thumb = landmarks[4];
                     const index = landmarks[8];
                     
-                    // 좌우(LR) 방향 복구 및 범위 확대 (원래대로 1-x 적용)
-                    angles.lr = mapAngle(1 - wrist.x);
+                  
+                    angles.lr = mapAngle(wrist.x);
                     // 상하(UD) 범위 확대
                     angles.ud = mapAngle(wrist.y);
 
