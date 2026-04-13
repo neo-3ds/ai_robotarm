@@ -163,34 +163,58 @@
         };
 
         // --- [연결 버그 해결을 위한 V2.4 핵심 로직] ---
-        connectBtn.onclick = async () => {
-            // 1. 카메라 연산을 즉시 중단하고 뷰포트를 일시적으로 투명하게 하여 브라우저 자원 확보
-            try { if(camera) await camera.stop(); } catch(e){}
-            viewportContainer.style.opacity = "0.1"; 
+       connectBtn.onclick = async () => {
 
-            // 2. 브라우저의 시리얼/USB 요청 즉시 호출
+    // ⭐⭐⭐ 가장 먼저 실행 (중요)
+    let port = null;
+
+    try {
+        if ("serial" in navigator) {
             try {
-                if ("serial" in navigator) {
-                    try {
-                        serialPort = await navigator.serial.requestPort();
-                        await serialPort.open({ baudRate: 115200 });
-                        writer = serialPort.writable.getWriter();
-                        onConnectSuccess("Serial");
-                    } catch (err) { 
-                        console.log("Serial fail, trying WebUSB..."); 
-                        await tryWebUSB();
-                    }
-                } else {
-                    await tryWebUSB();
-                }
+                port = await navigator.serial.requestPort();
             } catch (err) {
-                console.error(err);
-            } finally {
-                // 3. 팝업 처리가 끝나면 카메라 및 뷰포트 복구
-                viewportContainer.style.opacity = "1";
-                try { if(camera) await camera.start(); } catch(e){}
+                console.log("Serial 선택 취소 또는 실패");
             }
-        };
+        }
+
+        if (!port && "usb" in navigator) {
+            try {
+                device = await navigator.usb.requestDevice({
+                    filters: [
+                        { vendorId: 0x0403 }, // FT232R
+                        { vendorId: 0x1a86 },
+                        { vendorId: 0x2341 },
+                        { vendorId: 0x10c4 }
+                    ]
+                });
+            } catch (err) {
+                console.log("USB 선택 취소");
+            }
+        }
+
+        // ⭐ 이후 처리
+        try { if(camera) await camera.stop(); } catch(e){}
+        viewportContainer.style.opacity = "0.1";
+
+        if (port) {
+            serialPort = port;
+            await serialPort.open({ baudRate: 115200 });
+            writer = serialPort.writable.getWriter();
+            onConnectSuccess("Serial");
+        } else if (device) {
+            await device.open();
+            if (device.configuration === null) await device.selectConfiguration(1);
+            await device.claimInterface(0);
+            onConnectSuccess("USB");
+        }
+
+    } catch (err) {
+        console.error(err);
+    } finally {
+        viewportContainer.style.opacity = "1";
+        try { if(camera) await camera.start(); } catch(e){}
+    }
+};
 
         async function tryWebUSB() {
             if ("usb" in navigator) {
