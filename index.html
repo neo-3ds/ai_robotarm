@@ -1,185 +1,56 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.4</title>
-    <!-- MediaPipe & Tailwind 로드 -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body { background-color: #0f172a; color: white; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
-        
-        /* 메인 컨테이너 */
-        .canvas-container { 
-            position: relative; 
-            width: 100%; 
-            height: 65vh; 
-            background: #1e293b; 
-            border-radius: 1.5rem; 
-            overflow: hidden; 
-            border: 1px solid rgba(255, 255, 255, 0.1); 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        /* 전체화면 모드 */
-        .canvas-container.is-fullscreen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: 50;
-            border-radius: 0;
-            border: none;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Robot Controller FIX</title>
 
-        /* 투명 하단 제어바 */
-        #ui-footer {
-            position: fixed;
-            bottom: 2.5rem;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 85%;
-            max-width: 450px;
-            z-index: 100;
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(15px);
-            padding: 10px;
-            border-radius: 24px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            gap: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-        /* 카메라 미러링 */
-        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        
-        /* 모드 선택 버튼 스타일 */
-        .btn-mode {
-            flex: 1;
-            padding: 16px;
-            border-radius: 18px;
-            font-weight: 800;
-            font-size: 0.9rem;
-            transition: all 0.2s;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .btn-active { background: rgba(34, 211, 238, 0.3); border-color: rgba(34, 211, 238, 0.6); color: #22d3ee; box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); }
-        .btn-inactive { background: rgba(255, 255, 255, 0.02); color: rgba(255, 255, 255, 0.3); }
-
-        /* 확대 버튼 (좌상단 고정) */
-        #expandBtn {
-            position: absolute;
-            top: 1.5rem;
-            left: 1.5rem;
-            z-index: 150;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 12px;
-            border-radius: 50%;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(5px);
-        }
-
-        /* USB 연결 버튼 (UI 최상단 확보) */
-        #connectBtn { 
-            position: relative;
-            z-index: 999; 
-            pointer-events: auto;
-        }
-        
-        .touch-point { position: absolute; width: 50px; height: 50px; border: 2px solid rgba(34, 211, 238, 0.5); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 80; background: rgba(34, 211, 238, 0.1); }
-    </style>
+<style>
+body { background:#111; color:white; text-align:center; }
+video { width:100%; opacity:0.3; }
+canvas { position:absolute; top:0; left:0; }
+button { padding:15px; font-size:16px; margin:10px; }
+</style>
 </head>
-<body class="p-4 flex flex-col items-center">
-    <div id="ui-header" class="w-full max-w-2xl" style="position: relative; z-index: 400;">
-        <header class="flex justify-between items-center mb-6 px-2">
-            <div>
-                <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.4 Immediate Activation</p>
-            </div>
-            <div class="flex items-center space-x-2">
-                <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-3 rounded-2xl text-xs font-black shadow-2xl transition-all active:scale-90">USB 연결</button>
-            </div>
-        </header>
 
-        <div id="viewportContainer" class="canvas-container shadow-2xl">
-            <video id="inputVideo" playsinline></video>
-            <canvas id="outputCanvas"></canvas>
-            
-            <button id="expandBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="white" viewBox="0 0 16 16"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>
-            </button>
-            
-            <div id="touchPoint" class="touch-point"></div>
-            <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-500">
-                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl text-center">USB 연결 버튼을 누르세요</p>
-            </div>
-        </div>
+<body>
 
-        <div id="ui-footer">
-            <button id="modeGesture" class="btn-mode btn-active">동작 인식</button>
-            <button id="modeTouch" class="btn-mode btn-inactive">화면 터치</button>
-        </div>
-    </div>
+<h2>AI Robot Controller</h2>
+<button id="connectBtn">USB 연결</button>
 
-    <script>
-        // --- 전역 변수 ---
-        let device; 
-        let serialPort; 
-        let writer; 
-        let currentMode = 'gesture';
-        let isFullscreen = false;
-        let angles = { ud: 90, lr: 90, gr: 90 };
-        let sendTimer = null;
+<video id="inputVideo" autoplay playsinline></video>
+<canvas id="outputCanvas"></canvas>
 
-        const connectBtn = document.getElementById('connectBtn');
-        const modeText = document.getElementById('modeText');
-        const connProtocol = document.getElementById('connProtocol');
-        const viewportContainer = document.getElementById('viewportContainer');
-        const expandBtn = document.getElementById('expandBtn');
-        const canvasElement = document.getElementById('outputCanvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        const videoElement = document.getElementById('inputVideo');
+<script>
+let serialPort, writer, device;
+let angles = {ud:90, lr:90, gr:90};
 
-        function showMessage(text) {
-            modeText.innerText = text;
-            document.getElementById('touchOverlay').style.opacity = "1";
-            setTimeout(() => { document.getElementById('touchOverlay').style.opacity = "0"; }, 2500);
-        }
+const video = document.getElementById('inputVideo');
+const canvas = document.getElementById('outputCanvas');
+const ctx = canvas.getContext('2d');
 
-        expandBtn.onclick = (e) => {
-            e.stopPropagation();
-            isFullscreen = !isFullscreen;
-            if (isFullscreen) viewportContainer.classList.add('is-fullscreen');
-            else viewportContainer.classList.remove('is-fullscreen');
-            setTimeout(() => {
-                canvasElement.width = viewportContainer.offsetWidth;
-                canvasElement.height = viewportContainer.offsetHeight;
-            }, 100);
-        };
+////////////////////////////////////////////////////////////
+// ⭐⭐⭐ 핵심 수정된 연결 코드
+////////////////////////////////////////////////////////////
+document.getElementById('connectBtn').onclick = async () => {
 
-        // --- [연결 버그 해결을 위한 V2.4 핵심 로직] ---
-       connectBtn.onclick = async () => {
-
-    // ⭐⭐⭐ 가장 먼저 실행 (중요)
     let port = null;
+    let selectedDevice = null;
 
     try {
+        // 🔥 1. 가장 먼저 실행 (중요)
         if ("serial" in navigator) {
             try {
                 port = await navigator.serial.requestPort();
-            } catch (err) {
-                console.log("Serial 선택 취소 또는 실패");
-            }
+            } catch(e){}
         }
 
         if (!port && "usb" in navigator) {
             try {
-                device = await navigator.usb.requestDevice({
+                selectedDevice = await navigator.usb.requestDevice({
                     filters: [
                         { vendorId: 0x0403 }, // FT232R
                         { vendorId: 0x1a86 },
@@ -187,170 +58,118 @@
                         { vendorId: 0x10c4 }
                     ]
                 });
-            } catch (err) {
-                console.log("USB 선택 취소");
-            }
+            } catch(e){}
         }
 
-        // ⭐ 이후 처리
+        // 🔥 2. 이후 작업
         try { if(camera) await camera.stop(); } catch(e){}
-        viewportContainer.style.opacity = "0.1";
 
         if (port) {
             serialPort = port;
             await serialPort.open({ baudRate: 115200 });
             writer = serialPort.writable.getWriter();
-            onConnectSuccess("Serial");
-        } else if (device) {
-            await device.open();
-            if (device.configuration === null) await device.selectConfiguration(1);
-            await device.claimInterface(0);
-            onConnectSuccess("USB");
+            alert("Serial 연결 성공");
         }
 
-    } catch (err) {
-        console.error(err);
-    } finally {
-        viewportContainer.style.opacity = "1";
+        else if (selectedDevice) {
+            device = selectedDevice;
+            await device.open();
+            if (device.configuration === null)
+                await device.selectConfiguration(1);
+            await device.claimInterface(0);
+
+            alert("USB 연결 성공");
+        }
+
+        // 카메라 다시 시작
         try { if(camera) await camera.start(); } catch(e){}
+
+        setInterval(sendData, 30);
+
+    } catch(err) {
+        console.error(err);
     }
 };
 
-        async function tryWebUSB() {
-            if ("usb" in navigator) {
-                device = await navigator.usb.requestDevice({ 
-                    filters: [{ vendorId: 0x0403 }, { vendorId: 0x1a86 }, { vendorId: 0x2341 }, { vendorId: 0x10c4 }] 
-                });
-                await device.open();
-                if (device.configuration === null) await device.selectConfiguration(1);
-                await device.claimInterface(0);
+////////////////////////////////////////////////////////////
+// 데이터 전송
+////////////////////////////////////////////////////////////
+async function sendData() {
+    const packet = new Uint8Array([0xFF,0x55,1,angles.ud,angles.lr,angles.gr,2,0,0,0,0,0]);
 
-                if (device.vendorId === 0x0403) {
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
-                } else if (device.vendorId === 0x1a86) {
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
-                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
-                }
-                onConnectSuccess("USB");
-            }
+    if (writer) {
+        await writer.write(packet).catch(()=>{});
+    } else if (device) {
+        try { await device.transferOut(2, packet); }
+        catch { try { await device.transferOut(1, packet); } catch{} }
+    }
+}
+
+////////////////////////////////////////////////////////////
+// MediaPipe 손 인식
+////////////////////////////////////////////////////////////
+const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+    maxNumHands:1,
+    modelComplexity:0,
+    minDetectionConfidence:0.7,
+    minTrackingConfidence:0.7
+});
+
+hands.onResults(results => {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    if(results.multiHandLandmarks){
+        const lm = results.multiHandLandmarks[0];
+
+        const wrist = lm[0];
+        const thumb = lm[4];
+        const index = lm[8];
+
+        angles.lr = Math.round(wrist.x * 180);
+        angles.ud = Math.round(wrist.y * 180);
+
+        const dist = Math.hypot(
+            thumb.x - index.x,
+            thumb.y - index.y
+        );
+
+        if(dist < 0.07) angles.gr = 180;
+        else if(dist > 0.12) angles.gr = 0;
+        else angles.gr = 90;
+
+        // 시각화
+        for(const p of lm){
+            ctx.beginPath();
+            ctx.arc((1-p.x)*canvas.width, p.y*canvas.height,5,0,6.28);
+            ctx.fillStyle="cyan";
+            ctx.fill();
         }
+    }
+});
 
-        function onConnectSuccess(method) {
-            connectBtn.style.display = 'none';
-            connProtocol.innerText = `Connected: ${method}`;
-            showMessage("로봇 연결 성공!");
-            if (sendTimer) clearInterval(sendTimer);
-            sendTimer = setInterval(sendPacket, 30);
-        }
+////////////////////////////////////////////////////////////
+// 카메라
+////////////////////////////////////////////////////////////
+const camera = new Camera(video, {
+    onFrame: async () => {
+        await hands.send({image: video});
+    },
+    width:640,
+    height:480
+});
 
-        async function sendPacket() {
-            if (!writer && (!device || !device.opened)) return;
-            const packet = new Uint8Array([0xFF, 0x55, 0x01, angles.ud, angles.lr, angles.gr, 0x02, 0, 0, 0, 0, 0]);
-            if (writer) {
-                await writer.write(packet).catch(() => {});
-            } else {
-                try { await device.transferOut(0x02, packet); } 
-                catch (e) { try { await device.transferOut(0x01, packet); } catch(e2) {} }
-            }
-        }
+camera.start();
 
-        // --- MediaPipe 인식 (V2.0 로직 및 시각화 유지) ---
-        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
-        hands.onResults(onResults);
+window.onresize = () => {
+    canvas.width = video.offsetWidth;
+    canvas.height = video.offsetHeight;
+};
+window.onresize();
 
-        function mapAngle(val) {
-            let result = (val - 0.22) / 0.56 * 180;
-            return Math.max(0, Math.min(180, Math.round(result)));
-        }
-
-        function onResults(results) {
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks[0];
-                if (currentMode === 'gesture') {
-                    const wrist = landmarks[0];
-                    const thumb = landmarks[4];
-                    const index = landmarks[8];
-                    
-                    angles.lr = mapAngle(wrist.x);
-                    angles.ud = mapAngle(wrist.y);
-                    
-                    const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    if (dist < 0.075) angles.gr = 180;
-                    else if (dist > 0.125) angles.gr = 0;
-                    else angles.gr = 90;
-                }
-                
-                // V2.0 기준 시각화: 미러링 반영 (1 - x)
-                for (const landmark of landmarks) {
-                    canvasCtx.beginPath();
-                    canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
-                    canvasCtx.fillStyle = "#22d3ee";
-                    canvasCtx.fill();
-                    canvasCtx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-                    canvasCtx.lineWidth = 1.5;
-                    canvasCtx.stroke();
-                }
-            }
-            canvasCtx.restore();
-        }
-
-        const camera = new Camera(videoElement, {
-            onFrame: async () => { 
-                await hands.send({image: videoElement}); 
-            },
-            width: 640, height: 480
-        });
-        camera.start();
-
-        // --- 터치 제어 로직 ---
-        viewportContainer.addEventListener('touchstart', handleTouch);
-        viewportContainer.addEventListener('touchmove', handleTouch);
-        viewportContainer.addEventListener('touchend', () => { document.getElementById('touchPoint').style.display = 'none'; });
-
-        function handleTouch(e) {
-            if (currentMode !== 'touch' || e.target.closest('#expandBtn')) return;
-            e.preventDefault();
-            const rect = viewportContainer.getBoundingClientRect();
-            const touch = e.touches[0];
-            const x = (touch.clientX - rect.left) / rect.width;
-            const y = (touch.clientY - rect.top) / rect.height;
-
-            document.getElementById('touchPoint').style.display = 'block';
-            document.getElementById('touchPoint').style.left = (touch.clientX - rect.left) + 'px';
-            document.getElementById('touchPoint').style.top = (touch.clientY - rect.top) + 'px';
-
-            if (x > 0.8) {
-                angles.gr = mapAngle(y);
-            } else {
-                angles.lr = mapAngle(1 - x);
-                angles.ud = mapAngle(y);
-            }
-        }
-
-        document.getElementById('modeGesture').onclick = () => {
-            currentMode = 'gesture';
-            document.getElementById('modeGesture').className = "btn-mode btn-active";
-            document.getElementById('modeTouch').className = "btn-mode btn-inactive";
-            showMessage("동작 인식 모드");
-        };
-        document.getElementById('modeTouch').onclick = () => {
-            currentMode = 'touch';
-            document.getElementById('modeTouch').className = "btn-mode btn-active";
-            document.getElementById('modeGesture').className = "btn-mode btn-inactive";
-            showMessage("화면 터치 모드");
-        };
-
-        window.addEventListener('resize', () => {
-            canvasElement.width = viewportContainer.offsetWidth;
-            canvasElement.height = viewportContainer.offsetHeight;
-        });
-        window.dispatchEvent(new Event('resize'));
-    </script>
+</script>
 </body>
 </html>
