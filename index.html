@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.3</title>
+    <title>AI Robot Controller V2.4</title>
     <!-- MediaPipe & Tailwind 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -87,7 +87,8 @@
         /* USB 연결 버튼 (UI 최상단 확보) */
         #connectBtn { 
             position: relative;
-            z-index: 500; 
+            z-index: 999; 
+            pointer-events: auto;
         }
         
         .touch-point { position: absolute; width: 50px; height: 50px; border: 2px solid rgba(34, 211, 238, 0.5); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 80; background: rgba(34, 211, 238, 0.1); }
@@ -98,14 +99,14 @@
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.3 High Priority Conn</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.4 Immediate Activation</p>
             </div>
             <div class="flex items-center space-x-2">
                 <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-3 rounded-2xl text-xs font-black shadow-2xl transition-all active:scale-90">USB 연결</button>
             </div>
         </header>
 
-        <div id="mainViewport" class="canvas-container shadow-2xl">
+        <div id="viewportContainer" class="canvas-container shadow-2xl">
             <video id="inputVideo" playsinline></video>
             <canvas id="outputCanvas"></canvas>
             
@@ -115,7 +116,7 @@
             
             <div id="touchPoint" class="touch-point"></div>
             <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-500">
-                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl text-center">USB 연결 버튼을 눌러주세요</p>
+                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl text-center">USB 연결 버튼을 누르세요</p>
             </div>
         </div>
 
@@ -134,15 +135,15 @@
         let isFullscreen = false;
         let angles = { ud: 90, lr: 90, gr: 90 };
         let sendTimer = null;
-        let isCameraRunning = true; // 연결 팝업 시 AI 중단을 위한 플래그
 
         const connectBtn = document.getElementById('connectBtn');
         const modeText = document.getElementById('modeText');
         const connProtocol = document.getElementById('connProtocol');
-        const mainViewport = document.getElementById('mainViewport');
+        const viewportContainer = document.getElementById('viewportContainer');
         const expandBtn = document.getElementById('expandBtn');
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
+        const videoElement = document.getElementById('inputVideo');
 
         function showMessage(text) {
             modeText.innerText = text;
@@ -153,69 +154,64 @@
         expandBtn.onclick = (e) => {
             e.stopPropagation();
             isFullscreen = !isFullscreen;
-            if (isFullscreen) mainViewport.classList.add('is-fullscreen');
-            else mainViewport.classList.remove('is-fullscreen');
+            if (isFullscreen) viewportContainer.classList.add('is-fullscreen');
+            else viewportContainer.classList.remove('is-fullscreen');
             setTimeout(() => {
-                canvasElement.width = mainViewport.offsetWidth;
-                canvasElement.height = mainViewport.offsetHeight;
+                canvasElement.width = viewportContainer.offsetWidth;
+                canvasElement.height = viewportContainer.offsetHeight;
             }, 100);
         };
 
-        // --- [연결 버그 수정 핵심 로직] ---
-        connectBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        // --- [연결 버그 해결을 위한 V2.4 핵심 로직] ---
+        connectBtn.onclick = async () => {
+            // 1. 카메라 연산을 즉시 중단하고 뷰포트를 일시적으로 투명하게 하여 브라우저 자원 확보
+            try { if(camera) await camera.stop(); } catch(e){}
+            viewportContainer.style.opacity = "0.1"; 
 
-            // 1. 브라우저 부하 감소: 장치 목록을 띄우기 위해 잠시 AI 처리를 멈춤
-            isCameraRunning = false;
-
+            // 2. 브라우저의 시리얼/USB 요청 즉시 호출
             try {
-                // 2. WebSerial 시도
                 if ("serial" in navigator) {
                     try {
                         serialPort = await navigator.serial.requestPort();
                         await serialPort.open({ baudRate: 115200 });
                         writer = serialPort.writable.getWriter();
                         onConnectSuccess("Serial");
-                        return;
-                    } catch (err) { console.log("Serial bypass..."); }
-                }
-
-                // 3. WebUSB 시도 (FTDI 전용 필터 포함)
-                if ("usb" in navigator) {
-                    try {
-                        device = await navigator.usb.requestDevice({ 
-                            filters: [
-                                { vendorId: 0x0403 }, // FTDI (FT232R)
-                                { vendorId: 0x1a86 }, // CH34x
-                                { vendorId: 0x2341 }, // Arduino
-                                { vendorId: 0x10c4 }  // CP210x
-                            ] 
-                        });
-                        await device.open();
-                        if (device.configuration === null) await device.selectConfiguration(1);
-                        await device.claimInterface(0);
-
-                        // 칩셋 초기화
-                        if (device.vendorId === 0x0403) {
-                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
-                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
-                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
-                        } else if (device.vendorId === 0x1a86) {
-                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
-                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
-                        }
-                        onConnectSuccess("USB");
-                    } catch (err) {
-                        console.error(err);
-                        if(err.name !== "NotFoundError") alert("장치를 선택하지 않았습니다.");
+                    } catch (err) { 
+                        console.log("Serial fail, trying WebUSB..."); 
+                        await tryWebUSB();
                     }
+                } else {
+                    await tryWebUSB();
                 }
+            } catch (err) {
+                console.error(err);
             } finally {
-                // 4. 처리 재개
-                isCameraRunning = true;
+                // 3. 팝업 처리가 끝나면 카메라 및 뷰포트 복구
+                viewportContainer.style.opacity = "1";
+                try { if(camera) await camera.start(); } catch(e){}
             }
-        });
+        };
+
+        async function tryWebUSB() {
+            if ("usb" in navigator) {
+                device = await navigator.usb.requestDevice({ 
+                    filters: [{ vendorId: 0x0403 }, { vendorId: 0x1a86 }, { vendorId: 0x2341 }, { vendorId: 0x10c4 }] 
+                });
+                await device.open();
+                if (device.configuration === null) await device.selectConfiguration(1);
+                await device.claimInterface(0);
+
+                if (device.vendorId === 0x0403) {
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
+                } else if (device.vendorId === 0x1a86) {
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
+                    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
+                }
+                onConnectSuccess("USB");
+            }
+        }
 
         function onConnectSuccess(method) {
             connectBtn.style.display = 'none';
@@ -247,9 +243,6 @@
         }
 
         function onResults(results) {
-            // 연결 시도 중에는 연산을 생략하여 부하 감소
-            if (!isCameraRunning) return;
-
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             
@@ -283,25 +276,23 @@
             canvasCtx.restore();
         }
 
-        const camera = new Camera(document.getElementById('inputVideo'), {
+        const camera = new Camera(videoElement, {
             onFrame: async () => { 
-                if (isCameraRunning) {
-                    await hands.send({image: document.getElementById('inputVideo')}); 
-                }
+                await hands.send({image: videoElement}); 
             },
             width: 640, height: 480
         });
         camera.start();
 
         // --- 터치 제어 로직 ---
-        mainViewport.addEventListener('touchstart', handleTouch);
-        mainViewport.addEventListener('touchmove', handleTouch);
-        mainViewport.addEventListener('touchend', () => { document.getElementById('touchPoint').style.display = 'none'; });
+        viewportContainer.addEventListener('touchstart', handleTouch);
+        viewportContainer.addEventListener('touchmove', handleTouch);
+        viewportContainer.addEventListener('touchend', () => { document.getElementById('touchPoint').style.display = 'none'; });
 
         function handleTouch(e) {
             if (currentMode !== 'touch' || e.target.closest('#expandBtn')) return;
             e.preventDefault();
-            const rect = mainViewport.getBoundingClientRect();
+            const rect = viewportContainer.getBoundingClientRect();
             const touch = e.touches[0];
             const x = (touch.clientX - rect.left) / rect.width;
             const y = (touch.clientY - rect.top) / rect.height;
@@ -322,18 +313,18 @@
             currentMode = 'gesture';
             document.getElementById('modeGesture').className = "btn-mode btn-active";
             document.getElementById('modeTouch').className = "btn-mode btn-inactive";
-            showMessage("동작 인식 모드 활성");
+            showMessage("동작 인식 모드");
         };
         document.getElementById('modeTouch').onclick = () => {
             currentMode = 'touch';
             document.getElementById('modeTouch').className = "btn-mode btn-active";
             document.getElementById('modeGesture').className = "btn-mode btn-inactive";
-            showMessage("화면 터치 모드 활성");
+            showMessage("화면 터치 모드");
         };
 
         window.addEventListener('resize', () => {
-            canvasElement.width = mainViewport.offsetWidth;
-            canvasElement.height = mainViewport.offsetHeight;
+            canvasElement.width = viewportContainer.offsetWidth;
+            canvasElement.height = viewportContainer.offsetHeight;
         });
         window.dispatchEvent(new Event('resize'));
     </script>
