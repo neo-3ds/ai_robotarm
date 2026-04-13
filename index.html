@@ -3,72 +3,135 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 로봇집게 태블릿 제어기 (V2.0)</title>
-    <!-- 라이브러리 로드 -->
+    <title>AI Robot Controller V2.2</title>
+    <!-- MediaPipe & Tailwind 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #0f172a; color: white; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
-        .canvas-container { position: relative; width: 100%; height: 65vh; background: #1e293b; border-radius: 1rem; overflow: hidden; border: 1px solid #334155; transition: all 0.3s ease; }
-        .canvas-container.is-fullscreen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 100; border-radius: 0; border: none; }
-        #ui-footer { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); width: 90%; max-width: 500px; z-index: 110; background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); padding: 10px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1); display: flex; gap: 8px; }
-        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.25; }
+        
+        /* 메인 컨테이너 */
+        .canvas-container { 
+            position: relative; 
+            width: 100%; 
+            height: 65vh; 
+            background: #1e293b; 
+            border-radius: 1.5rem; 
+            overflow: hidden; 
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* 전체화면 모드 */
+        .canvas-container.is-fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 50;
+            border-radius: 0;
+            border: none;
+        }
+
+        /* 투명 하단 제어바 */
+        #ui-footer {
+            position: fixed;
+            bottom: 2.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 85%;
+            max-width: 450px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(15px);
+            padding: 10px;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* 카메라 미러링 */
+        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        .btn-mode { flex: 1; padding: 12px; border-radius: 12px; font-weight: bold; font-size: 0.85rem; transition: all 0.2s; border: 1px solid rgba(255, 255, 255, 0.1); }
-        .btn-active { background: rgba(34, 211, 238, 0.2); border-color: rgba(34, 211, 238, 0.5); color: #22d3ee; }
-        .btn-inactive { background: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.4); }
-        #expandBtn { position: absolute; top: 1.5rem; left: 1.5rem; z-index: 120; background: rgba(0, 0, 0, 0.5); padding: 12px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(4px); }
-        .help-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1e293b; border: 1px solid #334155; padding: 20px; border-radius: 15px; z-index: 200; display: none; width: 85%; max-width: 400px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        
+        /* 모드 선택 버튼 스타일 */
+        .btn-mode {
+            flex: 1;
+            padding: 16px;
+            border-radius: 18px;
+            font-weight: 800;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .btn-active { background: rgba(34, 211, 238, 0.3); border-color: rgba(34, 211, 238, 0.6); color: #22d3ee; box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); }
+        .btn-inactive { background: rgba(255, 255, 255, 0.02); color: rgba(255, 255, 255, 0.3); }
+
+        /* 확대 버튼 (좌상단 고정) */
+        #expandBtn {
+            position: absolute;
+            top: 1.5rem;
+            left: 1.5rem;
+            z-index: 150;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 12px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(5px);
+        }
+
+        /* USB 연결 버튼 (최상단 레이어) */
+        #connectBtn { 
+            position: relative;
+            z-index: 300; 
+        }
+        
+        .touch-point { position: absolute; width: 50px; height: 50px; border: 2px solid rgba(34, 211, 238, 0.5); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 80; background: rgba(34, 211, 238, 0.1); }
     </style>
 </head>
 <body class="p-4 flex flex-col items-center">
     <div id="ui-header" class="w-full max-w-2xl">
-        <header class="flex justify-between items-center mb-4 px-2">
+        <header class="flex justify-between items-center mb-6 px-2">
             <div>
-                <h1 class="text-xl font-bold text-cyan-400">AI Robot Controller</h1>
-                <p id="connProtocol" class="text-[9px] text-slate-500 font-mono uppercase tracking-widest">Checking Protocol...</p>
+                <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.2 Stable Connection</p>
             </div>
             <div class="flex items-center space-x-2">
-                <button id="helpBtn" class="text-slate-400 text-xs underline">연결 도움말</button>
-                <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-4 py-2 rounded-lg text-xs font-bold shadow-lg transition-all active:scale-95">USB 연결</button>
+                <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-3 rounded-2xl text-xs font-black shadow-2xl transition-all active:scale-90">USB 연결</button>
             </div>
         </header>
 
         <div id="mainViewport" class="canvas-container shadow-2xl">
             <video id="inputVideo" playsinline></video>
             <canvas id="outputCanvas"></canvas>
+            
+            <!-- 확대 버튼 -->
             <button id="expandBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="white" viewBox="0 0 16 16"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="white" viewBox="0 0 16 16"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>
             </button>
+            
             <div id="touchPoint" class="touch-point"></div>
             <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-500">
-                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-6 py-3 rounded-full text-sm font-bold text-cyan-200 border border-white/10">USB 연결이 필요합니다</p>
+                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl">USB 연결을 시도해 주세요</p>
             </div>
         </div>
 
+        <!-- 하단 투명 제어 버튼 -->
         <div id="ui-footer">
             <button id="modeGesture" class="btn-mode btn-active">동작 인식</button>
             <button id="modeTouch" class="btn-mode btn-inactive">화면 터치</button>
         </div>
     </div>
 
-    <!-- 도움말 모달 -->
-    <div id="helpModal" class="help-box">
-        <h2 class="text-lg font-bold text-cyan-400 mb-4">인식이 안 되시나요?</h2>
-        <ul class="text-sm text-slate-300 space-y-3 list-disc list-inside">
-            <li><strong>OTG 젠더 확인:</strong> 충전 전용이 아닌 '데이터 통신용' 젠더를 사용해야 합니다.</li>
-            <li><strong>OTG 설정 활성화:</strong> 일부 기기(삼성, LG 등)는 설정에서 <strong>'OTG 연결'</strong> 또는 <strong>'USB 디버깅'</strong>을 켜야 할 수 있습니다.</li>
-            <li><strong>브라우저 확인:</strong> 반드시 <strong>Chrome</strong> 브라우저를 사용하세요.</li>
-            <li><strong>주소 확인:</strong> 주소가 <code class="text-cyan-500">https://</code>로 시작하는지 확인하세요.</li>
-        </ul>
-        <button id="closeHelp" class="w-full mt-6 bg-slate-700 py-2 rounded-lg font-bold">닫기</button>
-    </div>
-
     <script>
-        let device; // WebUSB 장치
-        let serialPort; // WebSerial 포트
-        let writer; // 공통 쓰기 객체
+        // --- 하드웨어 통신 및 상태 변수 ---
+        let device; 
+        let serialPort; 
+        let writer; 
         let endpointOut = 0x02; 
         let currentMode = 'gesture';
         let isFullscreen = false;
@@ -83,17 +146,11 @@
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
 
-        // 프로토콜 체크
-        window.onload = () => {
-            if ("serial" in navigator) connProtocol.innerText = "Protocol: WebSerial Ready";
-            else if ("usb" in navigator) connProtocol.innerText = "Protocol: WebUSB (Legacy) Ready";
-            else connProtocol.innerText = "Protocol: Not Supported";
-        };
-
+        // 안내 메시지
         function showMessage(text) {
             modeText.innerText = text;
             document.getElementById('touchOverlay').style.opacity = "1";
-            setTimeout(() => { document.getElementById('touchOverlay').style.opacity = "0"; }, 2000);
+            setTimeout(() => { document.getElementById('touchOverlay').style.opacity = "0"; }, 2500);
         }
 
         // 전체화면 토글
@@ -105,16 +162,13 @@
             setTimeout(() => {
                 canvasElement.width = mainViewport.offsetWidth;
                 canvasElement.height = mainViewport.offsetHeight;
-            }, 150);
+            }, 100);
         };
 
-        // 도움말 제어
-        document.getElementById('helpBtn').onclick = () => document.getElementById('helpModal').style.display = 'block';
-        document.getElementById('closeHelp').onclick = () => document.getElementById('helpModal').style.display = 'none';
-
-        // 통합 연결 로직
-        connectBtn.addEventListener('click', async () => {
-            // 1. WebSerial 시도 (우선 순위)
+        // [버그 해결] USB 연결 버튼 로직 최적화
+        // 보안 정책상 사용자 클릭 이벤트 내부에서 지연 없이 즉시 API를 호출해야 장치 목록이 나타납니다.
+        connectBtn.onclick = async () => {
+            // 1. WebSerial 시도
             if ("serial" in navigator) {
                 try {
                     serialPort = await navigator.serial.requestPort();
@@ -122,90 +176,100 @@
                     writer = serialPort.writable.getWriter();
                     onConnectSuccess("Serial");
                     return;
-                } catch (err) { console.log("WebSerial fail, trying WebUSB..."); }
+                } catch (err) { console.log("Serial bypass..."); }
             }
 
-            // 2. WebUSB 시도 (Fallback)
+            // 2. WebUSB 시도 (FTDI 전용 필터 포함)
             if ("usb" in navigator) {
                 try {
                     device = await navigator.usb.requestDevice({ 
                         filters: [
-                            { vendorId: 0x0403 }, { vendorId: 0x1a86 }, 
-                            { vendorId: 0x2341 }, { vendorId: 0x10c4 }, 
-                            { vendorId: 0x067b }, { vendorId: 0x16c0 }
+                            { vendorId: 0x0403 }, // FTDI (FT232R)
+                            { vendorId: 0x1a86 }, // CH34x
+                            { vendorId: 0x2341 }, // Arduino
+                            { vendorId: 0x10c4 }  // CP210x
                         ] 
                     });
                     await device.open();
                     if (device.configuration === null) await device.selectConfiguration(1);
                     await device.claimInterface(0);
 
-                    // 칩셋별 초기화
-                    if (device.vendorId === 0x0403) { // FTDI
+                    // 칩셋별 초기화 (FTDI 지원 강화)
+                    if (device.vendorId === 0x0403) {
                         await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
                         await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
-                    } else if (device.vendorId === 0x1a86) { // CH34x
+                        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
+                    } else if (device.vendorId === 0x1a86) {
                         await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
                         await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
                     }
                     onConnectSuccess("WebUSB");
                 } catch (err) {
                     console.error(err);
-                    alert("기기를 인식할 수 없습니다. 연결 도움말을 확인하세요.");
+                    alert("연결할 장치를 선택하지 않았습니다.");
                 }
             }
-        });
+        };
 
         function onConnectSuccess(method) {
             connectBtn.style.display = 'none';
-            connProtocol.innerText = `Connected via ${method}`;
-            showMessage("로봇과 연결되었습니다!");
+            connProtocol.innerText = `Protocol: ${method} Enabled`;
+            showMessage("로봇 연결 성공!");
             if (sendTimer) clearInterval(sendTimer);
             sendTimer = setInterval(sendPacket, 30);
         }
 
         async function sendPacket() {
+            if (!writer && (!device || !device.opened)) return;
             const packet = new Uint8Array([0xFF, 0x55, 0x01, angles.ud, angles.lr, angles.gr, 0x02, 0, 0, 0, 0, 0]);
-            if (writer) { // WebSerial
+            if (writer) {
                 await writer.write(packet);
-            } else if (device && device.opened) { // WebUSB
+            } else {
                 try { await device.transferOut(endpointOut, packet); } 
                 catch (e) { try { await device.transferOut(0x01, packet); } catch(e2) {} }
             }
         }
 
-        // --- MediaPipe 인식 ---
+        // --- MediaPipe 인식 (V2.0 로직 및 시각화 유지) ---
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
         hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
         hands.onResults(onResults);
 
+        // 조종 범위 확대 매핑 (0.2~0.8 영역 -> 0~180도)
         function mapAngle(val) {
-            let result = (val - 0.2) / 0.6 * 180;
+            let result = (val - 0.22) / 0.56 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
         }
 
         function onResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 if (currentMode === 'gesture') {
                     const wrist = landmarks[0];
                     const thumb = landmarks[4];
                     const index = landmarks[8];
+                    
+                    // V2.0 기준 이동 방향 로직
                     angles.lr = mapAngle(wrist.x);
                     angles.ud = mapAngle(wrist.y);
+                    
                     const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-                    if (dist < 0.07) angles.gr = 180;
-                    else if (dist > 0.12) angles.gr = 0;
+                    if (dist < 0.075) angles.gr = 180;
+                    else if (dist > 0.125) angles.gr = 0;
                     else angles.gr = 90;
                 }
+                
+                // V2.0 기준 시각화 로직: 미러링 반영 (1 - x)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
                     canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
                     canvasCtx.fillStyle = "#22d3ee";
                     canvasCtx.fill();
-                    canvasCtx.strokeStyle = "white";
-                    canvasCtx.lineWidth = 1;
+                    canvasCtx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                    canvasCtx.lineWidth = 1.5;
                     canvasCtx.stroke();
                 }
             }
@@ -218,7 +282,7 @@
         });
         camera.start();
 
-        // --- 터치 제어 ---
+        // --- 터치 제어 로직 ---
         mainViewport.addEventListener('touchstart', handleTouch);
         mainViewport.addEventListener('touchmove', handleTouch);
         mainViewport.addEventListener('touchend', () => { document.getElementById('touchPoint').style.display = 'none'; });
@@ -235,24 +299,28 @@
             document.getElementById('touchPoint').style.left = (touch.clientX - rect.left) + 'px';
             document.getElementById('touchPoint').style.top = (touch.clientY - rect.top) + 'px';
 
-            if (x > 0.8) angles.gr = mapAngle(y);
-            else {
+            if (x > 0.8) {
+                // 우측 그리퍼 바 전용 (상하 각도 유지)
+                angles.gr = mapAngle(y);
+            } else {
+                // 일반 구역 (좌우/상하 조종) - 터치는 미러링 무시 직관성 위해 (1-x)
                 angles.lr = mapAngle(1 - x);
                 angles.ud = mapAngle(y);
             }
         }
 
+        // 투명 모드 선택 버튼 제어
         document.getElementById('modeGesture').onclick = () => {
             currentMode = 'gesture';
             document.getElementById('modeGesture').className = "btn-mode btn-active";
             document.getElementById('modeTouch').className = "btn-mode btn-inactive";
-            showMessage("동작 인식 모드");
+            showMessage("동작 인식 활성화");
         };
         document.getElementById('modeTouch').onclick = () => {
             currentMode = 'touch';
             document.getElementById('modeTouch').className = "btn-mode btn-active";
             document.getElementById('modeGesture').className = "btn-mode btn-inactive";
-            showMessage("화면 터치 모드");
+            showMessage("화면 터치 활성화");
         };
 
         window.addEventListener('resize', () => {
