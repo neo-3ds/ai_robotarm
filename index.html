@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.2</title>
+    <title>AI Robot Controller V2.3</title>
     <!-- MediaPipe & Tailwind 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -84,21 +84,21 @@
             backdrop-filter: blur(5px);
         }
 
-        /* USB 연결 버튼 (최상단 레이어) */
+        /* USB 연결 버튼 (UI 최상단 확보) */
         #connectBtn { 
             position: relative;
-            z-index: 300; 
+            z-index: 500; 
         }
         
         .touch-point { position: absolute; width: 50px; height: 50px; border: 2px solid rgba(34, 211, 238, 0.5); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 80; background: rgba(34, 211, 238, 0.1); }
     </style>
 </head>
 <body class="p-4 flex flex-col items-center">
-    <div id="ui-header" class="w-full max-w-2xl">
+    <div id="ui-header" class="w-full max-w-2xl" style="position: relative; z-index: 400;">
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.2 Stable Connection</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.3 High Priority Conn</p>
             </div>
             <div class="flex items-center space-x-2">
                 <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-3 rounded-2xl text-xs font-black shadow-2xl transition-all active:scale-90">USB 연결</button>
@@ -109,18 +109,16 @@
             <video id="inputVideo" playsinline></video>
             <canvas id="outputCanvas"></canvas>
             
-            <!-- 확대 버튼 -->
             <button id="expandBtn">
                 <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="white" viewBox="0 0 16 16"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>
             </button>
             
             <div id="touchPoint" class="touch-point"></div>
             <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-500">
-                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl">USB 연결을 시도해 주세요</p>
+                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl text-center">USB 연결 버튼을 눌러주세요</p>
             </div>
         </div>
 
-        <!-- 하단 투명 제어 버튼 -->
         <div id="ui-footer">
             <button id="modeGesture" class="btn-mode btn-active">동작 인식</button>
             <button id="modeTouch" class="btn-mode btn-inactive">화면 터치</button>
@@ -128,15 +126,15 @@
     </div>
 
     <script>
-        // --- 하드웨어 통신 및 상태 변수 ---
+        // --- 전역 변수 ---
         let device; 
         let serialPort; 
         let writer; 
-        let endpointOut = 0x02; 
         let currentMode = 'gesture';
         let isFullscreen = false;
         let angles = { ud: 90, lr: 90, gr: 90 };
         let sendTimer = null;
+        let isCameraRunning = true; // 연결 팝업 시 AI 중단을 위한 플래그
 
         const connectBtn = document.getElementById('connectBtn');
         const modeText = document.getElementById('modeText');
@@ -146,14 +144,12 @@
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
 
-        // 안내 메시지
         function showMessage(text) {
             modeText.innerText = text;
             document.getElementById('touchOverlay').style.opacity = "1";
             setTimeout(() => { document.getElementById('touchOverlay').style.opacity = "0"; }, 2500);
         }
 
-        // 전체화면 토글
         expandBtn.onclick = (e) => {
             e.stopPropagation();
             isFullscreen = !isFullscreen;
@@ -165,55 +161,65 @@
             }, 100);
         };
 
-        // [버그 해결] USB 연결 버튼 로직 최적화
-        // 보안 정책상 사용자 클릭 이벤트 내부에서 지연 없이 즉시 API를 호출해야 장치 목록이 나타납니다.
-        connectBtn.onclick = async () => {
-            // 1. WebSerial 시도
-            if ("serial" in navigator) {
-                try {
-                    serialPort = await navigator.serial.requestPort();
-                    await serialPort.open({ baudRate: 115200 });
-                    writer = serialPort.writable.getWriter();
-                    onConnectSuccess("Serial");
-                    return;
-                } catch (err) { console.log("Serial bypass..."); }
-            }
+        // --- [연결 버그 수정 핵심 로직] ---
+        connectBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
 
-            // 2. WebUSB 시도 (FTDI 전용 필터 포함)
-            if ("usb" in navigator) {
-                try {
-                    device = await navigator.usb.requestDevice({ 
-                        filters: [
-                            { vendorId: 0x0403 }, // FTDI (FT232R)
-                            { vendorId: 0x1a86 }, // CH34x
-                            { vendorId: 0x2341 }, // Arduino
-                            { vendorId: 0x10c4 }  // CP210x
-                        ] 
-                    });
-                    await device.open();
-                    if (device.configuration === null) await device.selectConfiguration(1);
-                    await device.claimInterface(0);
+            // 1. 브라우저 부하 감소: 장치 목록을 띄우기 위해 잠시 AI 처리를 멈춤
+            isCameraRunning = false;
 
-                    // 칩셋별 초기화 (FTDI 지원 강화)
-                    if (device.vendorId === 0x0403) {
-                        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
-                        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
-                        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
-                    } else if (device.vendorId === 0x1a86) {
-                        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
-                        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
-                    }
-                    onConnectSuccess("WebUSB");
-                } catch (err) {
-                    console.error(err);
-                    alert("연결할 장치를 선택하지 않았습니다.");
+            try {
+                // 2. WebSerial 시도
+                if ("serial" in navigator) {
+                    try {
+                        serialPort = await navigator.serial.requestPort();
+                        await serialPort.open({ baudRate: 115200 });
+                        writer = serialPort.writable.getWriter();
+                        onConnectSuccess("Serial");
+                        return;
+                    } catch (err) { console.log("Serial bypass..."); }
                 }
+
+                // 3. WebUSB 시도 (FTDI 전용 필터 포함)
+                if ("usb" in navigator) {
+                    try {
+                        device = await navigator.usb.requestDevice({ 
+                            filters: [
+                                { vendorId: 0x0403 }, // FTDI (FT232R)
+                                { vendorId: 0x1a86 }, // CH34x
+                                { vendorId: 0x2341 }, // Arduino
+                                { vendorId: 0x10c4 }  // CP210x
+                            ] 
+                        });
+                        await device.open();
+                        if (device.configuration === null) await device.selectConfiguration(1);
+                        await device.claimInterface(0);
+
+                        // 칩셋 초기화
+                        if (device.vendorId === 0x0403) {
+                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x00, index: 0x00 });
+                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x001a, index: 0x0000 });
+                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
+                        } else if (device.vendorId === 0x1a86) {
+                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb200 });
+                            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x2518, index: 0x0033 });
+                        }
+                        onConnectSuccess("USB");
+                    } catch (err) {
+                        console.error(err);
+                        if(err.name !== "NotFoundError") alert("장치를 선택하지 않았습니다.");
+                    }
+                }
+            } finally {
+                // 4. 처리 재개
+                isCameraRunning = true;
             }
-        };
+        });
 
         function onConnectSuccess(method) {
             connectBtn.style.display = 'none';
-            connProtocol.innerText = `Protocol: ${method} Enabled`;
+            connProtocol.innerText = `Connected: ${method}`;
             showMessage("로봇 연결 성공!");
             if (sendTimer) clearInterval(sendTimer);
             sendTimer = setInterval(sendPacket, 30);
@@ -223,9 +229,9 @@
             if (!writer && (!device || !device.opened)) return;
             const packet = new Uint8Array([0xFF, 0x55, 0x01, angles.ud, angles.lr, angles.gr, 0x02, 0, 0, 0, 0, 0]);
             if (writer) {
-                await writer.write(packet);
+                await writer.write(packet).catch(() => {});
             } else {
-                try { await device.transferOut(endpointOut, packet); } 
+                try { await device.transferOut(0x02, packet); } 
                 catch (e) { try { await device.transferOut(0x01, packet); } catch(e2) {} }
             }
         }
@@ -235,13 +241,15 @@
         hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
         hands.onResults(onResults);
 
-        // 조종 범위 확대 매핑 (0.2~0.8 영역 -> 0~180도)
         function mapAngle(val) {
             let result = (val - 0.22) / 0.56 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
         }
 
         function onResults(results) {
+            // 연결 시도 중에는 연산을 생략하여 부하 감소
+            if (!isCameraRunning) return;
+
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             
@@ -252,7 +260,6 @@
                     const thumb = landmarks[4];
                     const index = landmarks[8];
                     
-                    // V2.0 기준 이동 방향 로직
                     angles.lr = mapAngle(wrist.x);
                     angles.ud = mapAngle(wrist.y);
                     
@@ -262,7 +269,7 @@
                     else angles.gr = 90;
                 }
                 
-                // V2.0 기준 시각화 로직: 미러링 반영 (1 - x)
+                // V2.0 기준 시각화: 미러링 반영 (1 - x)
                 for (const landmark of landmarks) {
                     canvasCtx.beginPath();
                     canvasCtx.arc((1 - landmark.x) * canvasElement.width, landmark.y * canvasElement.height, 5, 0, 2 * Math.PI);
@@ -277,7 +284,11 @@
         }
 
         const camera = new Camera(document.getElementById('inputVideo'), {
-            onFrame: async () => { await hands.send({image: document.getElementById('inputVideo')}); },
+            onFrame: async () => { 
+                if (isCameraRunning) {
+                    await hands.send({image: document.getElementById('inputVideo')}); 
+                }
+            },
             width: 640, height: 480
         });
         camera.start();
@@ -300,27 +311,24 @@
             document.getElementById('touchPoint').style.top = (touch.clientY - rect.top) + 'px';
 
             if (x > 0.8) {
-                // 우측 그리퍼 바 전용 (상하 각도 유지)
                 angles.gr = mapAngle(y);
             } else {
-                // 일반 구역 (좌우/상하 조종) - 터치는 미러링 무시 직관성 위해 (1-x)
                 angles.lr = mapAngle(1 - x);
                 angles.ud = mapAngle(y);
             }
         }
 
-        // 투명 모드 선택 버튼 제어
         document.getElementById('modeGesture').onclick = () => {
             currentMode = 'gesture';
             document.getElementById('modeGesture').className = "btn-mode btn-active";
             document.getElementById('modeTouch').className = "btn-mode btn-inactive";
-            showMessage("동작 인식 활성화");
+            showMessage("동작 인식 모드 활성");
         };
         document.getElementById('modeTouch').onclick = () => {
             currentMode = 'touch';
             document.getElementById('modeTouch').className = "btn-mode btn-active";
             document.getElementById('modeGesture').className = "btn-mode btn-inactive";
-            showMessage("화면 터치 활성화");
+            showMessage("화면 터치 모드 활성");
         };
 
         window.addEventListener('resize', () => {
