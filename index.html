@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.8</title>
+    <title>AI Robot Controller V2.9</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,7 +98,7 @@
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.8 Connection Timing Fix</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.9 List Render Fix</p>
             </div>
             
             <div class="flex items-center space-x-2">
@@ -202,43 +202,45 @@
             }, 100);
         };
 
-        // --- 연결 처리 및 모바일 팝업 타이밍 동기화 오류 해결 ---
-        connectBtn.onclick = async () => {
-            // 1. UI 스타일 변경을 즉시 반영
+        // --- 연결 처리 및 모바일 장치 목록 즉시 로드 오류 완벽 수정 ---
+        connectBtn.onclick = () => {
+            // [버그 수정 핵심]: 투명도 조절 스타일을 먼저 완벽히 적용하여 메인 UI 스레드를 정리함
             viewportContainer.style.opacity = "0.5"; 
 
-            // [수정] 렌더링 스레드가 팝업에 밀려 먹통이 되는 현상을 막기 위해, 스타일 변경이 끝난 뒤(50ms) 디바이스 요청을 수행
-            setTimeout(async () => {
-                try {
-                    if ("serial" in navigator) {
-                        try {
-                            serialPort = await navigator.serial.requestPort();
-                            await serialPort.open({ baudRate: 115200 });
-                            writer = serialPort.writable.getWriter();
-                            onConnectSuccess("Serial");
-                        } catch (err) { 
-                            console.log("Serial fail, trying WebUSB..."); 
+            // 브라우저가 화면 렌더링을 완수하고 자원을 완전히 확보하도록 애니메이션 프레임 뒤로 호출을 양보
+            requestAnimationFrame(() => {
+                setTimeout(async () => {
+                    try {
+                        if ("serial" in navigator) {
+                            try {
+                                serialPort = await navigator.serial.requestPort();
+                                await serialPort.open({ baudRate: 115200 });
+                                writer = serialPort.writable.getWriter();
+                                onConnectSuccess("Serial");
+                            } catch (err) { 
+                                console.log("Serial fail, trying WebUSB..."); 
+                                await tryWebUSB();
+                            }
+                        } else {
                             await tryWebUSB();
                         }
-                    } else {
-                        await tryWebUSB();
+                    } catch (err) {
+                        console.error(err);
+                    } finally {
+                        viewportContainer.style.opacity = "1";
+                        
+                        const isConnected = writer || (device && device.opened);
+                        if (!isConnected && !isCameraRunning) {
+                            try { 
+                                if(camera) {
+                                    await camera.start(); 
+                                    isCameraRunning = true;
+                                }
+                            } catch(e){}
+                        }
                     }
-                } catch (err) {
-                    console.error(err);
-                } finally {
-                    viewportContainer.style.opacity = "1";
-                    
-                    const isConnected = writer || (device && device.opened);
-                    if (!isConnected && !isCameraRunning) {
-                        try { 
-                            if(camera) {
-                                await camera.start(); 
-                                isCameraRunning = true;
-                            }
-                        } catch(e){}
-                    }
-                }
-            }, 50);
+                }, 80); // 지연 스케일을 80ms로 정밀 조정하여 모바일 크롬의 팝업 목록 강제 동기화 유도
+            });
         };
 
         async function tryWebUSB() {
@@ -287,6 +289,7 @@
         hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
         hands.onResults(onResults);
 
+        // V2.0 기준 미러링 영역 보정 스케일 매핑 유지
         function mapAngle(val) {
             let result = (val - 0.22) / 0.56 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
