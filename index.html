@@ -1,133 +1,4 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.5</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body { background-color: #0f172a; color: white; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
-        
-        /* 메인 컨테이너 */
-        .canvas-container { 
-            position: relative; 
-            width: 100%; 
-            height: 65vh; 
-            background: #1e293b; 
-            border-radius: 1.5rem; 
-            overflow: hidden; 
-            border: 1px solid rgba(255, 255, 255, 0.1); 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        /* 전체화면 모드 */
-        .canvas-container.is-fullscreen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: 50;
-            border-radius: 0;
-            border: none;
-        }
-
-        /* 투명 하단 제어바 */
-        #ui-footer {
-            position: fixed;
-            bottom: 2.5rem;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 85%;
-            max-width: 450px;
-            z-index: 100;
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(15px);
-            padding: 10px;
-            border-radius: 24px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            gap: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-
-        /* 카메라 미러링 */
-        video { transform: rotateY(180deg); position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; }
-        
-        /* 모드 선택 버튼 스타일 */
-        .btn-mode {
-            flex: 1;
-            padding: 16px;
-            border-radius: 18px;
-            font-weight: 800;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            white-space: nowrap;
-        }
-        .btn-active { background: rgba(34, 211, 238, 0.3); border-color: rgba(34, 211, 238, 0.6); color: #22d3ee; box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); }
-        .btn-inactive { background: rgba(255, 255, 255, 0.02); color: rgba(255, 255, 255, 0.3); }
-
-        /* 확대 버튼 (좌상단 고정) */
-        #expandBtn {
-            position: absolute;
-            top: 1.5rem;
-            left: 1.5rem;
-            z-index: 150;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 12px;
-            border-radius: 50%;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(5px);
-        }
-
-        /* USB 연결 버튼 (UI 최상단 확보) */
-        #connectBtn { 
-            position: relative;
-            z-index: 999; 
-            pointer-events: auto;
-        }
-        
-        .touch-point { position: absolute; width: 50px; height: 50px; border: 2px solid rgba(34, 211, 238, 0.5); border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; z-index: 80; background: rgba(34, 211, 238, 0.1); }
-    </style>
-</head>
-<body class="p-4 flex flex-col items-center">
-    <div id="ui-header" class="w-full max-w-2xl" style="position: relative; z-index: 400;">
-        <header class="flex justify-between items-center mb-6 px-2">
-            <div>
-                <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.5 Mouse/Touch Integrated</p>
-            </div>
-            <div class="flex items-center space-x-2">
-                <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-3 rounded-2xl text-xs font-black shadow-2xl transition-all active:scale-90">USB 연결</button>
-            </div>
-        </header>
-
-        <div id="viewportContainer" class="canvas-container shadow-2xl">
-            <video id="inputVideo" playsinline></video>
-            <canvas id="outputCanvas"></canvas>
-            
-            <button id="expandBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="white" viewBox="0 0 16 16"><path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>
-            </button>
-            
-            <div id="touchPoint" class="touch-point"></div>
-            <div id="touchOverlay" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none transition-opacity duration-500">
-                <p id="modeText" class="bg-slate-900/70 backdrop-blur-md px-8 py-4 rounded-full text-sm font-bold text-cyan-200 border border-white/10 shadow-2xl text-center">USB 연결 버튼을 누르세요</p>
-            </div>
-        </div>
-
-        <div id="ui-footer">
-            <button id="modeGesture" class="btn-mode btn-active">동작 인식</button>
-            <button id="modeTouch" class="btn-mode btn-inactive">화면터치/마우스 제어</button>
-        </div>
-    </div>
-
-    <script>
-        // --- 전역 변수 ---
+// --- 전역 변수 ---
         let device; 
         let serialPort; 
         let writer; 
@@ -135,6 +6,9 @@
         let isFullscreen = false;
         let angles = { ud: 90, lr: 90, gr: 90 };
         let sendTimer = null;
+        
+        // [수정] USB 연결 중 카메라 연산을 잠시 멈추기 위한 플래그 변수
+        let isConnecting = false; 
 
         const connectBtn = document.getElementById('connectBtn');
         const modeText = document.getElementById('modeText');
@@ -162,9 +36,10 @@
             }, 100);
         };
 
-        // --- 연결 로직 ---
+        // --- [연결 버그 및 권한 중복 요청 해결 로직] ---
         connectBtn.onclick = async () => {
-            try { if(camera) await camera.stop(); } catch(e){}
+            // [수정] 카메라 stop 대신 플래그를 true로 바꾸어 MediaPipe 연산만 일시 중단
+            isConnecting = true; 
             viewportContainer.style.opacity = "0.1"; 
 
             try {
@@ -184,8 +59,9 @@
             } catch (err) {
                 console.error(err);
             } finally {
+                // [수정] 팝업 처리가 끝나면 뷰포트를 복구하고 다시 연산 재개 가능하도록 플래그 해제
                 viewportContainer.style.opacity = "1";
-                try { if(camera) await camera.start(); } catch(e){}
+                isConnecting = false; 
             }
         };
 
@@ -272,9 +148,12 @@
             canvasCtx.restore();
         }
 
+        // [수정] onFrame 루프에서 연결 중(isConnecting === true)일 때는 MediaPipe 연산을 건너뜀
         const camera = new Camera(videoElement, {
             onFrame: async () => { 
-                await hands.send({image: videoElement}); 
+                if (!isConnecting) {
+                    await hands.send({image: videoElement}); 
+                }
             },
             width: 640, height: 480
         });
@@ -305,7 +184,7 @@
             }
         }
 
-        // --- 데스크탑 마우스 커서 및 휠 제어 로직 추가 ---
+        // --- 데스크탑 마우스 커서 및 휠 제어 로직 ---
         viewportContainer.addEventListener('mousemove', handleMouseMove);
         viewportContainer.addEventListener('mouseleave', () => { document.getElementById('touchPoint').style.display = 'none'; });
         viewportContainer.addEventListener('wheel', handleMouseWheel, { passive: false });
@@ -316,12 +195,10 @@
             const x = (e.clientX - rect.left) / rect.width;
             const y = (e.clientY - rect.top) / rect.height;
 
-            // 시각적 커서 포인트 노출
             document.getElementById('touchPoint').style.display = 'block';
             document.getElementById('touchPoint').style.left = (e.clientX - rect.left) + 'px';
             document.getElementById('touchPoint').style.top = (e.clientY - rect.top) + 'px';
 
-            // 우측 20% 영역은 모바일 터치 프로토콜 하위 호환 매핑 유지 (마우스 이동으로도 조절 가능)
             if (x > 0.8) {
                 angles.gr = mapAngle(y);
             } else {
@@ -332,13 +209,12 @@
 
         function handleMouseWheel(e) {
             if (currentMode !== 'touch') return;
-            e.preventDefault(); // 브라우저 스크롤 방지
+            e.preventDefault(); 
 
-            // 휠 조작 방식: 휠을 위로(정방향) 굴리면 집게 열림(0도), 아래로 굴리면 집게 닫힘(180도)
             if (e.deltaY < 0) {
-                angles.gr = 0;   // Gripper Open
+                angles.gr = 0;   
             } else if (e.deltaY > 0) {
-                angles.gr = 180; // Gripper Close
+                angles.gr = 180; 
             }
         }
 
@@ -361,6 +237,3 @@
             canvasElement.height = viewportContainer.offsetHeight;
         });
         window.dispatchEvent(new Event('resize'));
-    </script>
-</body>
-</html>
