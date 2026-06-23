@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.6</title>
+    <title>AI Robot Controller V2.7</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,9 +98,12 @@
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.6 Camera Fix & Smooth Control</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.7 Mobile UX Restored</p>
             </div>
+            
             <div class="flex items-center space-x-2">
+                <button id="chromeBtn" class="hidden bg-gradient-to-r from-amber-500 to-red-500 hover:from-amber-400 hover:to-red-400 px-3 py-2 rounded-xl text-[11px] font-black shadow-lg transition-all active:scale-95 animate-pulse">Chrome으로 열기</button>
+                <button id="guideBtn" class="bg-slate-800 hover:bg-slate-700 border border-white/10 px-3 py-2 rounded-xl text-[11px] font-bold shadow-lg transition-all">연결 가이드</button>
                 <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-3 rounded-2xl text-xs font-black shadow-2xl transition-all active:scale-90">USB 연결</button>
             </div>
         </header>
@@ -125,6 +128,18 @@
         </div>
     </div>
 
+    <div id="guideModal" class="fixed inset-0 z-[1000] hidden flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-white/10 p-6 rounded-3xl max-w-sm w-full shadow-2xl space-y-4">
+            <h3 class="text-lg font-black text-cyan-400">📱 모바일 기기 연결 방법 가이드</h3>
+            <ul class="text-xs text-slate-300 space-y-2.5 list-disc pl-4 leading-relaxed">
+                <li>반드시 <strong class="text-amber-400">Chrome(크롬) 브라우저</strong>로 본 페이지에 접속하셔야 연결이 가능합니다. (삼성 인터넷, 카카오톡 인앱 브라우저 등은 지원 불가)</li>
+                <li>스마트폰/태블릿과 로봇 보드를 OTG 젠더 및 USB 케이블로 연결합니다.</li>
+                <li>상단의 <strong class="text-cyan-400">USB 연결</strong> 버튼을 누르고, 브라우저 팝업창에서 기기 장치를 선택한 뒤 연결을 허용해 주세요.</li>
+            </ul>
+            <button id="closeGuideBtn" class="w-full bg-slate-800 hover:bg-slate-700 py-3 rounded-xl text-xs font-bold border border-white/5 transition-all">확인 (닫기)</button>
+        </div>
+    </div>
+
     <script>
         // --- 전역 변수 ---
         let device; 
@@ -145,11 +160,42 @@
         const canvasCtx = canvasElement.getContext('2d');
         const videoElement = document.getElementById('inputVideo');
 
+        // [복구 변수] 모바일 전용 엘리먼트
+        const chromeBtn = document.getElementById('chromeBtn');
+        const guideBtn = document.getElementById('guideBtn');
+        const guideModal = document.getElementById('guideModal');
+        const closeGuideBtn = document.getElementById('closeGuideBtn');
+
         function showMessage(text) {
             modeText.innerText = text;
             document.getElementById('touchOverlay').style.opacity = "1";
             setTimeout(() => { document.getElementById('touchOverlay').style.opacity = "0"; }, 2500);
         }
+
+        // --- [복구] 모바일 브라우저 판별 및 버튼 노출 처리 ---
+        function checkMobileEnvironment() {
+            const userAgent = navigator.userAgent.toLowerCase();
+            const isMobile = /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+            
+            if (isMobile) {
+                // 크롬 브라우저가 아닐 경우 'Chrome으로 열기' 버튼 활성화 안내
+                const isChrome = /chrome|crios/i.test(userAgent) && !/naver|kakaotalk|samsungbrowser/i.test(userAgent);
+                if (!isChrome) {
+                    chromeBtn.classList.remove('hidden');
+                }
+                // 모바일 환경일 때 첫 진입 시 자동으로 가이드 팝업을 오픈합니다.
+                guideModal.classList.remove('hidden');
+            }
+        }
+
+        // [복구] 가이드 모달 이벤트 연동
+        guideBtn.onclick = () => guideModal.classList.remove('hidden');
+        closeGuideBtn.onclick = () => guideModal.classList.add('hidden');
+        chromeBtn.onclick = () => {
+            // 현재 페이지 주소를 크롬 인텐트로 강제 전환 유도 (안드로이드 기준)
+            const currentUrl = window.location.href.replace(/^https?:\/\//, '');
+            window.location.href = 'intent://' + currentUrl + '#Intent;scheme=https;package=com.android.chrome;end';
+        };
 
         expandBtn.onclick = (e) => {
             e.stopPropagation();
@@ -164,7 +210,6 @@
 
         // --- 연결 처리 및 카메라 상태 보존 로직 ---
         connectBtn.onclick = async () => {
-            // [수정] USB 연결 시 기존 카메라 스트림을 정지시키지 않고 유지하여 화면이 꺼지는 현상 완벽 방지
             viewportContainer.style.opacity = "0.5"; 
 
             try {
@@ -186,7 +231,6 @@
             } finally {
                 viewportContainer.style.opacity = "1";
                 
-                // 만약 첫 카메라 구동이 어떤 이유로든 안 되어 있었을 때만 안전장치로 작동
                 const isConnected = writer || (device && device.opened);
                 if (!isConnected && !isCameraRunning) {
                     try { 
@@ -222,6 +266,7 @@
 
         function onConnectSuccess(method) {
             connectBtn.style.display = 'none';
+            if(guideBtn) guideBtn.style.display = 'none'; // 연결 완료 시 가이드 숨김
             connProtocol.innerText = `Connected: ${method}`;
             showMessage("로봇 연결 성공!");
             if (sendTimer) clearInterval(sendTimer);
@@ -289,10 +334,9 @@
             width: 640, height: 480
         });
         
-        // 초기 실행 1회 선언 유지
         camera.start().then(() => { isCameraRunning = true; });
 
-        // --- 입력(터치/마우스) 및 감쇄(속도 조절) 로직 ---
+        // --- 입력(터치/마우스) 및 감쇄 로직 ---
         viewportContainer.addEventListener('touchstart', handleTouch);
         viewportContainer.addEventListener('touchmove', handleTouch);
         viewportContainer.addEventListener('touchend', () => { document.getElementById('touchPoint').style.display = 'none'; });
@@ -306,13 +350,13 @@
             e.preventDefault();
             const rect = viewportContainer.getBoundingClientRect();
             const touch = e.touches[0];
-            processInput(touch.clientX, touch.clientY, rect, false); // 모바일 터치는 기존 감도 유지
+            processInput(touch.clientX, touch.clientY, rect, false); 
         }
 
         function handleMouse(e) {
             if (currentMode !== 'touch' || e.target.closest('#expandBtn')) return;
             const rect = viewportContainer.getBoundingClientRect();
-            processInput(e.clientX, e.clientY, rect, true); // 데스크탑 마우스는 감도 감쇄 속도 적용
+            processInput(e.clientX, e.clientY, rect, true); 
         }
 
         function processInput(clientX, clientY, rect, isMouse) {
@@ -324,20 +368,15 @@
             document.getElementById('touchPoint').style.top = (clientY - rect.top) + 'px';
 
             if (!isMouse && x > 0.8) {
-                // 모바일 우측 20% 슬라이더 영역 제어 (기존 로직 유지)
                 angles.gr = Math.max(0, Math.min(180, Math.round(y * 180)));
             } else {
                 if (isMouse) {
-                    // [수정] 데스크탑 마우스 커서 제어 시 관절 이동 범위 및 이동 속도(민감도) 하향 보정
-                    // 전체 뷰포트 중심 기준으로 스케일을 완화(0.15~0.85 범위 내로 보정 계산)하여 속도를 늦춥니다.
                     let targetLR = (1 - (x / 1.0)) * 180;
                     let targetUD = y * 180;
                     
-                    // 현재 각도에서 목표 각도로 부드럽게 보간(안정화 필터링 효과)
                     angles.lr = Math.max(0, Math.min(180, Math.round(angles.lr * 0.7 + targetLR * 0.3)));
                     angles.ud = Math.max(0, Math.min(180, Math.round(angles.ud * 0.7 + targetUD * 0.3)));
                 } else {
-                    // 모바일 일반 터치 영역
                     angles.lr = Math.max(0, Math.min(180, Math.round((1 - (x / 0.8)) * 180)));
                     angles.ud = Math.max(0, Math.min(180, Math.round(y * 180)));
                 }
@@ -373,6 +412,9 @@
             canvasElement.width = viewportContainer.offsetWidth;
             canvasElement.height = viewportContainer.offsetHeight;
         });
+        
+        // 초기 윈도우 로드 시 모바일 검사 실행 및 사이즈 최적화
+        window.addEventListener('load', checkMobileEnvironment);
         window.dispatchEvent(new Event('resize'));
     </script>
 </body>
