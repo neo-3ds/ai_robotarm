@@ -98,7 +98,7 @@
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V3.0 Pop-up List Render Fix</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V3.1 Mobile USB Gesture Fix</p>
             </div>
             
             <div class="flex items-center space-x-2">
@@ -202,55 +202,54 @@
             }, 100);
         };
 
-        // --- 연결 처리 및 모바일 장치 목록 즉시 로드 오류 수정 완료 ---
-        connectBtn.onclick = () => {
-            viewportContainer.style.opacity = "0.5"; 
-
-            requestAnimationFrame(() => {
-                setTimeout(async () => {
+        // --- 연결 처리 ---
+        // [핵심 수정] 모바일 Chrome은 user gesture 컨텍스트 유지 시간이 짧습니다.
+        // requestPort() / requestDevice()는 click 핸들러 내에서 비동기 래핑 없이 즉시 호출해야
+        // 팝업 열림 시점에 USB 장치 스캔이 정상 실행됩니다.
+        // 이전 코드의 requestAnimationFrame → setTimeout(100ms) 이중 래핑이 원인이었습니다.
+        connectBtn.onclick = async () => {
+            try {
+                if ("serial" in navigator) {
                     try {
-                        if ("serial" in navigator) {
-                            try {
-                                // [수정 핵심] 모바일 크롬 시리얼 팝업의 즉각적인 장치 검색 렌더링을 위해 필터 목록을 직접 제공합니다.
-                                // FT232R(0x0403), CH340(0x1a86), CP2102(0x10c4), Arduino(0x2341) 보드 연동 강제 리프레시 유도
-                                const usbFilters = [
-                                    { usbVendorId: 0x0403 }, 
-                                    { usbVendorId: 0x1a86 }, 
-                                    { usbVendorId: 0x10c4 }, 
-                                    { usbVendorId: 0x2341 }
-                                ];
-                                serialPort = await navigator.serial.requestPort({ filters: usbFilters });
-                                await serialPort.open({ baudRate: 115200 });
-                                writer = serialPort.writable.getWriter();
-                                onConnectSuccess("Serial");
-                            } catch (err) { 
-                                console.log("Serial fail or cancelled, trying WebUSB..."); 
-                                await tryWebUSB();
-                            }
-                        } else {
-                            await tryWebUSB();
-                        }
+                        const usbFilters = [
+                            { usbVendorId: 0x0403 }, // FT232R
+                            { usbVendorId: 0x1a86 }, // CH340
+                            { usbVendorId: 0x10c4 }, // CP2102
+                            { usbVendorId: 0x2341 }  // Arduino
+                        ];
+                        // ★ user gesture 컨텍스트 유지: await 전 DOM 조작 없이 즉시 호출
+                        serialPort = await navigator.serial.requestPort({ filters: usbFilters });
+                        viewportContainer.style.opacity = "0.5"; // 연결 확정 이후 UI 변경
+                        await serialPort.open({ baudRate: 115200 });
+                        writer = serialPort.writable.getWriter();
+                        onConnectSuccess("Serial");
                     } catch (err) {
-                        console.error(err);
-                    } finally {
-                        viewportContainer.style.opacity = "1";
-                        
-                        const isConnected = writer || (device && device.opened);
-                        if (!isConnected && !isCameraRunning) {
-                            try { 
-                                if(camera) {
-                                    await camera.start(); 
-                                    isCameraRunning = true;
-                                }
-                            } catch(e){}
-                        }
+                        console.log("Serial fail or cancelled, trying WebUSB...");
+                        await tryWebUSB();
                     }
-                }, 100); // 렌더링 큐 확보를 위해 타이밍을 100ms로 소폭 늘려 안정성을 극대화합니다.
-            });
+                } else {
+                    await tryWebUSB();
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                viewportContainer.style.opacity = "1";
+
+                const isConnected = writer || (device && device.opened);
+                if (!isConnected && !isCameraRunning) {
+                    try {
+                        if (camera) {
+                            await camera.start();
+                            isCameraRunning = true;
+                        }
+                    } catch(e) {}
+                }
+            }
         };
 
         async function tryWebUSB() {
             if ("usb" in navigator) {
+                // ★ WebUSB도 user gesture 컨텍스트 내에서 호출되어야 장치 목록이 즉시 스캔됩니다.
                 device = await navigator.usb.requestDevice({ 
                     filters: [{ vendorId: 0x0403 }, { vendorId: 0x1a86 }, { vendorId: 0x2341 }, { vendorId: 0x10c4 }] 
                 });
