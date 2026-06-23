@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.9</title>
+    <title>AI Robot Controller V3.0</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,7 +98,7 @@
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.9 List Render Fix</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V3.0 Pop-up List Render Fix</p>
             </div>
             
             <div class="flex items-center space-x-2">
@@ -202,23 +202,29 @@
             }, 100);
         };
 
-        // --- 연결 처리 및 모바일 장치 목록 즉시 로드 오류 완벽 수정 ---
+        // --- 연결 처리 및 모바일 장치 목록 즉시 로드 오류 수정 완료 ---
         connectBtn.onclick = () => {
-            // [버그 수정 핵심]: 투명도 조절 스타일을 먼저 완벽히 적용하여 메인 UI 스레드를 정리함
             viewportContainer.style.opacity = "0.5"; 
 
-            // 브라우저가 화면 렌더링을 완수하고 자원을 완전히 확보하도록 애니메이션 프레임 뒤로 호출을 양보
             requestAnimationFrame(() => {
                 setTimeout(async () => {
                     try {
                         if ("serial" in navigator) {
                             try {
-                                serialPort = await navigator.serial.requestPort();
+                                // [수정 핵심] 모바일 크롬 시리얼 팝업의 즉각적인 장치 검색 렌더링을 위해 필터 목록을 직접 제공합니다.
+                                // FT232R(0x0403), CH340(0x1a86), CP2102(0x10c4), Arduino(0x2341) 보드 연동 강제 리프레시 유도
+                                const usbFilters = [
+                                    { usbVendorId: 0x0403 }, 
+                                    { usbVendorId: 0x1a86 }, 
+                                    { usbVendorId: 0x10c4 }, 
+                                    { usbVendorId: 0x2341 }
+                                ];
+                                serialPort = await navigator.serial.requestPort({ filters: usbFilters });
                                 await serialPort.open({ baudRate: 115200 });
                                 writer = serialPort.writable.getWriter();
                                 onConnectSuccess("Serial");
                             } catch (err) { 
-                                console.log("Serial fail, trying WebUSB..."); 
+                                console.log("Serial fail or cancelled, trying WebUSB..."); 
                                 await tryWebUSB();
                             }
                         } else {
@@ -239,7 +245,7 @@
                             } catch(e){}
                         }
                     }
-                }, 80); // 지연 스케일을 80ms로 정밀 조정하여 모바일 크롬의 팝업 목록 강제 동기화 유도
+                }, 100); // 렌더링 큐 확보를 위해 타이밍을 100ms로 소폭 늘려 안정성을 극대화합니다.
             });
         };
 
@@ -289,7 +295,6 @@
         hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
         hands.onResults(onResults);
 
-        // V2.0 기준 미러링 영역 보정 스케일 매핑 유지
         function mapAngle(val) {
             let result = (val - 0.22) / 0.56 * 180;
             return Math.max(0, Math.min(180, Math.round(result)));
