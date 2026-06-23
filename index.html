@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Robot Controller V2.7</title>
+    <title>AI Robot Controller V2.8</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,7 +98,7 @@
         <header class="flex justify-between items-center mb-6 px-2">
             <div>
                 <h1 class="text-2xl font-black text-cyan-400 tracking-tight">AI ROBOT</h1>
-                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.7 Mobile UX Restored</p>
+                <p id="connProtocol" class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">V2.8 Connection Timing Fix</p>
             </div>
             
             <div class="flex items-center space-x-2">
@@ -160,7 +160,6 @@
         const canvasCtx = canvasElement.getContext('2d');
         const videoElement = document.getElementById('inputVideo');
 
-        // [복구 변수] 모바일 전용 엘리먼트
         const chromeBtn = document.getElementById('chromeBtn');
         const guideBtn = document.getElementById('guideBtn');
         const guideModal = document.getElementById('guideModal');
@@ -172,27 +171,22 @@
             setTimeout(() => { document.getElementById('touchOverlay').style.opacity = "0"; }, 2500);
         }
 
-        // --- [복구] 모바일 브라우저 판별 및 버튼 노출 처리 ---
         function checkMobileEnvironment() {
             const userAgent = navigator.userAgent.toLowerCase();
             const isMobile = /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
             
             if (isMobile) {
-                // 크롬 브라우저가 아닐 경우 'Chrome으로 열기' 버튼 활성화 안내
                 const isChrome = /chrome|crios/i.test(userAgent) && !/naver|kakaotalk|samsungbrowser/i.test(userAgent);
                 if (!isChrome) {
                     chromeBtn.classList.remove('hidden');
                 }
-                // 모바일 환경일 때 첫 진입 시 자동으로 가이드 팝업을 오픈합니다.
                 guideModal.classList.remove('hidden');
             }
         }
 
-        // [복구] 가이드 모달 이벤트 연동
         guideBtn.onclick = () => guideModal.classList.remove('hidden');
         closeGuideBtn.onclick = () => guideModal.classList.add('hidden');
         chromeBtn.onclick = () => {
-            // 현재 페이지 주소를 크롬 인텐트로 강제 전환 유도 (안드로이드 기준)
             const currentUrl = window.location.href.replace(/^https?:\/\//, '');
             window.location.href = 'intent://' + currentUrl + '#Intent;scheme=https;package=com.android.chrome;end';
         };
@@ -208,39 +202,43 @@
             }, 100);
         };
 
-        // --- 연결 처리 및 카메라 상태 보존 로직 ---
+        // --- 연결 처리 및 모바일 팝업 타이밍 동기화 오류 해결 ---
         connectBtn.onclick = async () => {
+            // 1. UI 스타일 변경을 즉시 반영
             viewportContainer.style.opacity = "0.5"; 
 
-            try {
-                if ("serial" in navigator) {
-                    try {
-                        serialPort = await navigator.serial.requestPort();
-                        await serialPort.open({ baudRate: 115200 });
-                        writer = serialPort.writable.getWriter();
-                        onConnectSuccess("Serial");
-                    } catch (err) { 
-                        console.log("Serial fail, trying WebUSB..."); 
+            // [수정] 렌더링 스레드가 팝업에 밀려 먹통이 되는 현상을 막기 위해, 스타일 변경이 끝난 뒤(50ms) 디바이스 요청을 수행
+            setTimeout(async () => {
+                try {
+                    if ("serial" in navigator) {
+                        try {
+                            serialPort = await navigator.serial.requestPort();
+                            await serialPort.open({ baudRate: 115200 });
+                            writer = serialPort.writable.getWriter();
+                            onConnectSuccess("Serial");
+                        } catch (err) { 
+                            console.log("Serial fail, trying WebUSB..."); 
+                            await tryWebUSB();
+                        }
+                    } else {
                         await tryWebUSB();
                     }
-                } else {
-                    await tryWebUSB();
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    viewportContainer.style.opacity = "1";
+                    
+                    const isConnected = writer || (device && device.opened);
+                    if (!isConnected && !isCameraRunning) {
+                        try { 
+                            if(camera) {
+                                await camera.start(); 
+                                isCameraRunning = true;
+                            }
+                        } catch(e){}
+                    }
                 }
-            } catch (err) {
-                console.error(err);
-            } finally {
-                viewportContainer.style.opacity = "1";
-                
-                const isConnected = writer || (device && device.opened);
-                if (!isConnected && !isCameraRunning) {
-                    try { 
-                        if(camera) {
-                            await camera.start(); 
-                            isCameraRunning = true;
-                        }
-                    } catch(e){}
-                }
-            }
+            }, 50);
         };
 
         async function tryWebUSB() {
@@ -266,7 +264,7 @@
 
         function onConnectSuccess(method) {
             connectBtn.style.display = 'none';
-            if(guideBtn) guideBtn.style.display = 'none'; // 연결 완료 시 가이드 숨김
+            if(guideBtn) guideBtn.style.display = 'none'; 
             connProtocol.innerText = `Connected: ${method}`;
             showMessage("로봇 연결 성공!");
             if (sendTimer) clearInterval(sendTimer);
@@ -413,7 +411,6 @@
             canvasElement.height = viewportContainer.offsetHeight;
         });
         
-        // 초기 윈도우 로드 시 모바일 검사 실행 및 사이즈 최적화
         window.addEventListener('load', checkMobileEnvironment);
         window.dispatchEvent(new Event('resize'));
     </script>
